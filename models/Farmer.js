@@ -24,6 +24,14 @@ const farmerSchema = new mongoose.Schema({
     type: String,
     default: "user.png",
   },
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  // In models/Farmer.js
+verificationCode: String,
+verificationCodeExpires: Date,
+isVerified: { type: Boolean, default: false }
 });
 
 // Method to compare passwords
