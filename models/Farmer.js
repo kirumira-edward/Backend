@@ -2,33 +2,61 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-const farmerSchema = new mongoose.Schema({
-  firstName: {
-    type: String,
-    required: true,
+const farmerSchema = new mongoose.Schema(
+  {
+    firstName: {
+      type: String,
+      required: true
+    },
+    lastName: {
+      type: String,
+      required: true
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true
+    },
+    password: {
+      type: String,
+      required: true
+    },
+    profilePhoto: {
+      type: String,
+      default: "user.png"
+    },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    verificationCode: {
+      type: String
+    },
+    verificationCodeExpires: {
+      type: Date
+    },
+    refreshToken: {
+      type: String
+    }
   },
-  lastName: {
-    type: String,
-    required: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  password: {
-    type: String,
-    required: true,
-  },
-  profilePhoto: {
-    type: String,
-    default: "user.png",
-  },
-});
+  { timestamps: true }
+);
 
 // Method to compare passwords
 farmerSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Generate verification code
+farmerSchema.methods.generateVerificationCode = function () {
+  // Generate a random 6-digit code
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  // Set code and expiration (1 hour from now)
+  this.verificationCode = code;
+  this.verificationCodeExpires = Date.now() + 3600000; // 1 hour
+
+  return code;
 };
 
 // Hash password before saving
