@@ -8,6 +8,8 @@ const jwt = require("jsonwebtoken");
 const Farmer = require("./models/Farmer");
 const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
+const { startSchedulers } = require("./utils/dataScheduler");
+const environmentalDataController = require("./controllers/environmentalDataController");
 
 dotenv.config();
 
@@ -360,6 +362,17 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
   }
 });
 
+// ENVIRONMENTAL DATA ROUTES
+
+// Get latest environmental data
+app.get("/api/environmental/latest", environmentalDataController.getLatestEnvironmentalData);
+
+// Get environmental data within a date range (requires authentication)
+app.get("/api/environmental/range", authenticateToken, verifyEmail, environmentalDataController.getEnvironmentalDataRange);
+
+// Manual trigger to refresh environmental data (requires authentication)
+app.post("/api/environmental/refresh", authenticateToken, verifyEmail, environmentalDataController.refreshEnvironmentalData);
+
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
   app.get("/api/dev/verification-code/:email", async (req, res) => {
@@ -383,6 +396,13 @@ if (require.main === module) {
   connectDB().then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+      
+      // Start the data collection schedulers
+      // Weather data every 3 hours, soil moisture every 30 minutes
+      startSchedulers(
+        3 * 60 * 60 * 1000,  // 3 hours in milliseconds
+        30 * 60 * 1000       // 30 minutes in milliseconds
+      );
     });
   });
 }
