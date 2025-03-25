@@ -25,6 +25,10 @@ const farmerSchema = new mongoose.Schema(
       type: String,
       default: "user.png"
     },
+    defaultLocation: {
+      latitude: Number,
+      longitude: Number
+    },
     isVerified: {
       type: Boolean,
       default: false
@@ -46,6 +50,14 @@ const farmerSchema = new mongoose.Schema(
 farmerSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
+
+// Add to the farmerSchema:
+
+farmerSchema.virtual('environmentalData', {
+  ref: 'EnvironmentalData',
+  localField: '_id',
+  foreignField: 'farmerId'
+});
 
 // Generate verification code
 farmerSchema.methods.generateVerificationCode = function () {

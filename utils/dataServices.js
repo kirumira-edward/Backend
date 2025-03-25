@@ -7,7 +7,7 @@ const axios = require("axios");
  * @param {string} apiKey - OpenWeather API key
  * @returns {Promise<Object>} Weather data response
  */
-const fetchWeatherData = async (lat = "0.3321332652604399", lon = "32.570457568263755", apiKey = "66b6e3817ad88b582a85e2a23d35de20") => {
+const fetchWeatherData = async (lat = "0.3321332652604399", lon = "32.570457568263755", apiKey = process.env.OPENWEATHER_API_KEY) => {
   try {
     const response = await axios.get(
       `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}`
@@ -27,9 +27,9 @@ const fetchWeatherData = async (lat = "0.3321332652604399", lon = "32.5704575682
  * @returns {Promise<Object>} Soil moisture data response
  */
 const fetchSoilMoistureData = async (
-  channelId = "2876766",
+  channelId = process.env.THINGSPEAK_CHANNEL,
   fieldNumber = "1",
-  apiKey = "AY1N616LWXM1DXKJ"
+  apiKey = process.env.THINGSPEAK_API_KEY
 ) => {
   try {
     const response = await axios.get(
@@ -56,8 +56,6 @@ const extractWeatherData = (weatherData) => {
     temperature: parseFloat((currentWeather.main.temp - 273.15).toFixed(2)), // Convert from Kelvin to Celsius
     humidity: currentWeather.main.humidity,
     rainfall: currentWeather.rain ? (currentWeather.rain["3h"] || 0) : 0, // 3-hour rainfall in mm
-    windSpeed: currentWeather.wind.speed,
-    cloudCover: currentWeather.clouds.all, // Cloud cover percentage
     locationId: `${weatherData.city.name}`
   };
 };

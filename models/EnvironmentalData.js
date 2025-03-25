@@ -1,13 +1,33 @@
 // models/EnvironmentalData.js
 const mongoose = require("mongoose");
 
+// Schema for individual readings throughout the day
+const dataReadingSchema = new mongoose.Schema({
+  timestamp: {
+    type: Date,
+    required: true
+  },
+  temperature: Number,
+  humidity: Number,
+  rainfall: Number,
+  soilMoisture: Number
+});
+
+// Main environmental data schema - now storing daily data
 const environmentalDataSchema = new mongoose.Schema(
   {
-    timestamp: {
+    date: {
       type: Date,
       required: true,
-      default: Date.now
+      index: true
     },
+    // Add farmer reference
+    farmerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Farmer",
+      index: true
+    },
+    // Daily average values
     temperature: {
       type: Number,
       required: true
@@ -23,20 +43,27 @@ const environmentalDataSchema = new mongoose.Schema(
     soilMoisture: {
       type: Number
     },
-    windSpeed: {
-      type: Number
-    },
-    cloudCover: {
-      type: Number
-    },
+    // Store all readings for the day
+    readings: [dataReadingSchema],
+    // Location data
     locationId: {
       type: String,
       default: "default-location"
     },
-    dataSource: {
+    riskLevel: {
       type: String,
-      enum: ["api", "sensor", "combined"],
-      default: "combined"
+      enum: ["Low", "Medium", "High", "Critical"],
+      default: "Low"
+    },
+    // Type of blight risk
+    blightType: {
+      type: String,
+      enum: ["Healthy", "Early Blight", "Late Blight"],
+      default: "Healthy"
+    },
+    coordinates: {
+      latitude: Number,
+      longitude: Number
     },
     // Calculated risk index (0-100)
     cri: {
@@ -48,13 +75,38 @@ const environmentalDataSchema = new mongoose.Schema(
       type: String,
       enum: ["Low", "Medium", "High", "Critical"],
       default: "Low"
+    },
+    // Percentage changes
+    percentageChanges: {
+      daily: {
+        temperature: Number,
+        humidity: Number,
+        rainfall: Number,
+        soilMoisture: Number,
+        cri: Number
+      },
+      weekly: {
+        temperature: Number,
+        humidity: Number,
+        rainfall: Number,
+        soilMoisture: Number,
+        cri: Number
+      },
+      monthly: {
+        temperature: Number,
+        humidity: Number,
+        rainfall: Number,
+        soilMoisture: Number,
+        cri: Number
+      }
     }
   },
   { timestamps: true }
 );
 
-// Create compound index for efficient querying by date range and location
-environmentalDataSchema.index({ timestamp: 1, locationId: 1 });
+// Create compound indexes for efficient querying
+environmentalDataSchema.index({ date: 1, locationId: 1 });
+environmentalDataSchema.index({ farmerId: 1, date: 1 });
 
 const EnvironmentalData = mongoose.model("EnvironmentalData", environmentalDataSchema);
 module.exports = EnvironmentalData;

@@ -364,6 +364,10 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
 
 // ENVIRONMENTAL DATA ROUTES
 
+// In server.js - replace the direct endpoint definitions with:
+const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
+app.use("/api/environmental", environmentalDataRoutes);
+
 // Get latest environmental data
 app.get("/api/environmental/latest", environmentalDataController.getLatestEnvironmentalData);
 
