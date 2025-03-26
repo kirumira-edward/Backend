@@ -9,7 +9,7 @@ const Farmer = require("./models/Farmer");
 const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
 const { startSchedulers } = require("./utils/dataScheduler");
-const environmentalDataController = require("./controllers/environmentalDataController");
+const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 
 dotenv.config();
 
@@ -365,17 +365,8 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
 // ENVIRONMENTAL DATA ROUTES
 
 // In server.js - replace the direct endpoint definitions with:
-const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
+
 app.use("/api/environmental", environmentalDataRoutes);
-
-// Get latest environmental data
-app.get("/api/environmental/latest", environmentalDataController.getLatestEnvironmentalData);
-
-// Get environmental data within a date range (requires authentication)
-app.get("/api/environmental/range", authenticateToken, verifyEmail, environmentalDataController.getEnvironmentalDataRange);
-
-// Manual trigger to refresh environmental data (requires authentication)
-app.post("/api/environmental/refresh", authenticateToken, verifyEmail, environmentalDataController.refreshEnvironmentalData);
 
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
