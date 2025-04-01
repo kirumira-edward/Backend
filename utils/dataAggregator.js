@@ -1,5 +1,9 @@
 const EnvironmentalData = require("../models/EnvironmentalData");
 const { calculateCRI } = require("./dataValidator");
+const {
+  triggerBlightRiskNotification,
+  triggerWeatherChangeNotification
+} = require("./notificationTriggers");
 
 /**
  * Calculates the average of an array of numbers
@@ -189,8 +193,19 @@ const addEnvironmentalReading = async (
       // Calculate percentage changes
       await calculateAndUpdatePercentageChanges(dailyRecord);
 
-      // Save and return
-      return await dailyRecord.save();
+      // Save the record
+      await dailyRecord.save();
+
+      // Trigger notifications if farmerId exists
+      if (farmerId) {
+        await Promise.all([
+          triggerBlightRiskNotification(dailyRecord),
+          triggerWeatherChangeNotification(dailyRecord)
+        ]);
+      }
+
+      // Return the saved record
+      return dailyRecord;
     } else {
       // Create new daily record
       const newDailyRecord = new EnvironmentalData({
@@ -225,8 +240,19 @@ const addEnvironmentalReading = async (
       // Calculate percentage changes
       await calculateAndUpdatePercentageChanges(newDailyRecord);
 
-      // Save and return
-      return await newDailyRecord.save();
+      // Save the record
+      await newDailyRecord.save();
+
+      // Trigger notifications if farmerId exists
+      if (farmerId) {
+        await Promise.all([
+          triggerBlightRiskNotification(newDailyRecord),
+          triggerWeatherChangeNotification(newDailyRecord)
+        ]);
+      }
+
+      // Return the saved record
+      return newDailyRecord;
     }
   } catch (error) {
     console.error("Error adding environmental reading:", error);
@@ -277,33 +303,78 @@ const calculateAndUpdatePercentageChanges = async (dailyRecord) => {
     // Calculate daily changes
     if (yesterdayRecord) {
       dailyRecord.percentageChanges.daily = {
-        temperature: calculatePercentageChange(dailyRecord.temperature, yesterdayRecord.temperature)?.toFixed(1),
-        humidity: calculatePercentageChange(dailyRecord.humidity, yesterdayRecord.humidity)?.toFixed(1),
-        rainfall: calculatePercentageChange(dailyRecord.rainfall, yesterdayRecord.rainfall)?.toFixed(1),
-        soilMoisture: calculatePercentageChange(dailyRecord.soilMoisture, yesterdayRecord.soilMoisture)?.toFixed(1),
-        cri: calculatePercentageChange(dailyRecord.cri, yesterdayRecord.cri)?.toFixed(1)
+        temperature: calculatePercentageChange(
+          dailyRecord.temperature,
+          yesterdayRecord.temperature
+        )?.toFixed(1),
+        humidity: calculatePercentageChange(
+          dailyRecord.humidity,
+          yesterdayRecord.humidity
+        )?.toFixed(1),
+        rainfall: calculatePercentageChange(
+          dailyRecord.rainfall,
+          yesterdayRecord.rainfall
+        )?.toFixed(1),
+        soilMoisture: calculatePercentageChange(
+          dailyRecord.soilMoisture,
+          yesterdayRecord.soilMoisture
+        )?.toFixed(1),
+        cri: calculatePercentageChange(
+          dailyRecord.cri,
+          yesterdayRecord.cri
+        )?.toFixed(1)
       };
     }
 
     // Calculate weekly changes
     if (lastWeekRecord) {
       dailyRecord.percentageChanges.weekly = {
-        temperature: calculatePercentageChange(dailyRecord.temperature, lastWeekRecord.temperature)?.toFixed(1),
-        humidity: calculatePercentageChange(dailyRecord.humidity, lastWeekRecord.humidity)?.toFixed(1),
-        rainfall: calculatePercentageChange(dailyRecord.rainfall, lastWeekRecord.rainfall)?.toFixed(1),
-        soilMoisture: calculatePercentageChange(dailyRecord.soilMoisture, lastWeekRecord.soilMoisture)?.toFixed(1),
-        cri: calculatePercentageChange(dailyRecord.cri, lastWeekRecord.cri)?.toFixed(1)
+        temperature: calculatePercentageChange(
+          dailyRecord.temperature,
+          lastWeekRecord.temperature
+        )?.toFixed(1),
+        humidity: calculatePercentageChange(
+          dailyRecord.humidity,
+          lastWeekRecord.humidity
+        )?.toFixed(1),
+        rainfall: calculatePercentageChange(
+          dailyRecord.rainfall,
+          lastWeekRecord.rainfall
+        )?.toFixed(1),
+        soilMoisture: calculatePercentageChange(
+          dailyRecord.soilMoisture,
+          lastWeekRecord.soilMoisture
+        )?.toFixed(1),
+        cri: calculatePercentageChange(
+          dailyRecord.cri,
+          lastWeekRecord.cri
+        )?.toFixed(1)
       };
     }
 
     // Calculate monthly changes
     if (lastMonthRecord) {
       dailyRecord.percentageChanges.monthly = {
-        temperature: calculatePercentageChange(dailyRecord.temperature, lastMonthRecord.temperature)?.toFixed(1),
-        humidity: calculatePercentageChange(dailyRecord.humidity, lastMonthRecord.humidity)?.toFixed(1),
-        rainfall: calculatePercentageChange(dailyRecord.rainfall, lastMonthRecord.rainfall)?.toFixed(1),
-        soilMoisture: calculatePercentageChange(dailyRecord.soilMoisture, lastMonthRecord.soilMoisture)?.toFixed(1),
-        cri: calculatePercentageChange(dailyRecord.cri, lastMonthRecord.cri)?.toFixed(1)
+        temperature: calculatePercentageChange(
+          dailyRecord.temperature,
+          lastMonthRecord.temperature
+        )?.toFixed(1),
+        humidity: calculatePercentageChange(
+          dailyRecord.humidity,
+          lastMonthRecord.humidity
+        )?.toFixed(1),
+        rainfall: calculatePercentageChange(
+          dailyRecord.rainfall,
+          lastMonthRecord.rainfall
+        )?.toFixed(1),
+        soilMoisture: calculatePercentageChange(
+          dailyRecord.soilMoisture,
+          lastMonthRecord.soilMoisture
+        )?.toFixed(1),
+        cri: calculatePercentageChange(
+          dailyRecord.cri,
+          lastMonthRecord.cri
+        )?.toFixed(1)
       };
     }
   } catch (error) {

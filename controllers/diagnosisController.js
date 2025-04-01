@@ -7,6 +7,9 @@ const {
 } = require("../utils/geminiService");
 const { uploadDiagnosisImage } = require("../utils/cloudinaryService");
 const { calculateCRI } = require("../utils/dataValidator");
+const {
+  triggerDiagnosisNotification
+} = require("../utils/notificationTriggers");
 const axios = require("axios"); // Import axios
 
 /**
@@ -222,6 +225,9 @@ const diagnosePlant = async (req, res) => {
 
       await pendingDiagnosis.save();
       console.log("Diagnosis saved to database");
+
+      // Send a notification about the diagnosis result
+      await triggerDiagnosisNotification(pendingDiagnosis);
 
       // Return results to client
       res.status(200).json({
