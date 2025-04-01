@@ -6,9 +6,12 @@ const {
 } = require("./dataServices");
 const { validateEnvironmentalData } = require("./dataValidator");
 const { addEnvironmentalReading } = require("./dataAggregator");
+const Farmer = require("../models/Farmer");
+const { sendFarmingTip } = require("./notificationTriggers");
 
 // Track our timers
 let weatherIntervalId = null;
+let farmingTipsIntervalId = null;
 
 /**
  * Fetches and processes data from both OpenWeather and ThingSpeak
@@ -101,30 +104,96 @@ const executeDataCollection = async (
 };
 
 /**
- * Starts the schedulers for data collection
- * @param {number} interval - Interval in milliseconds between data collections
+ * Schedule sending of weekly farming tips
  */
-const startSchedulers = (interval = 4 * 60 * 60 * 1000) => {
-  // Default: 4 hours (6 times a day)
+const scheduleFarmingTips = () => {
+  // Send farming tips once a week (in milliseconds: 7 days * 24 hours * 60 minutes * 60 seconds * 1000)
+  const interval = 7 * 24 * 60 * 60 * 1000;
+
+  console.log("Starting farming tips scheduler...");
+
+  // Clear any existing interval
+  if (farmingTipsIntervalId) {
+    clearInterval(farmingTipsIntervalId);
+  }
+
+  // Set interval for farming tips
+  farmingTipsIntervalId = setInterval(async () => {
+    try {
+      // Get all verified farmers with farming tips enabled
+      const farmers = await Farmer.find({
+        isVerified: true,
+        "notificationSettings.farmingTips": { $ne: false } // Only send to farmers who haven't disabled tips
+      });
+
+      // Send tip to each farmer
+      for (const farmer of farmers) {
+        await sendFarmingTip(farmer._id);
+      }
+
+      console.log(
+        `Sent farming tips to ${
+          farmers.length
+        } farmers at ${new Date().toISOString()}`
+      );
+    } catch (error) {
+      console.error("Error sending scheduled farming tips:", error);
+    }
+  }, interval);
+
+  // For testing/development, send one tip right away
+  if (process.env.NODE_ENV === "development") {
+    setTimeout(async () => {
+      try {
+        const farmers = await Farmer.find({ isVerified: true }).limit(2);
+        if (farmers.length > 0) {
+          for (const farmer of farmers) {
+            await sendFarmingTip(farmer._id);
+          }
+          console.log(
+            `Sent initial farming tips to ${farmers.length} farmers for testing`
+          );
+        }
+      } catch (error) {
+        console.error("Error sending initial farming tip:", error);
+      }
+    }, 10000); // Wait 10 seconds after server start
+  }
+};
+
+/**
+ * Starts the schedulers for data collection
+ * @param {number} weatherInterval - Interval in milliseconds between weather data collections
+ * @param {number} soilMoistureInterval - Interval in milliseconds between soil moisture data collections
+ */
+const startSchedulers = (
+  weatherInterval = 4 * 60 * 60 * 1000,
+  soilMoistureInterval = 30 * 60 * 1000
+) => {
+  // Default: 4 hours for weather, 30 minutes for soil moisture
   // Stop any existing schedulers first
   stopSchedulers();
 
-  console.log("Starting data collection schedulers...");
+  console.log("Starting all schedulers...");
 
   // Immediately fetch data when starting the scheduler
   executeDataCollection();
 
   // Set up regular intervals for fetching data
-  weatherIntervalId = setInterval(executeDataCollection, interval);
+  weatherIntervalId = setInterval(executeDataCollection, weatherInterval);
+
+  // Start the farming tips scheduler
+  scheduleFarmingTips();
 
   console.log(
-    `Data scheduler started. Data will be collected every ${
-      interval / (60 * 1000)
-    } minutes.`
+    `All schedulers started. Weather data will be collected every ${
+      weatherInterval / (60 * 1000)
+    } minutes. Farming tips will be sent weekly.`
   );
 
   return {
-    weatherIntervalId
+    weatherIntervalId,
+    farmingTipsIntervalId
   };
 };
 
@@ -137,7 +206,12 @@ const stopSchedulers = () => {
     weatherIntervalId = null;
   }
 
-  console.log("Data collection schedulers stopped.");
+  if (farmingTipsIntervalId) {
+    clearInterval(farmingTipsIntervalId);
+    farmingTipsIntervalId = null;
+  }
+
+  console.log("All schedulers stopped.");
 };
 
 module.exports = {

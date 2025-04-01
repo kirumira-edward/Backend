@@ -9,8 +9,10 @@ const Farmer = require("./models/Farmer");
 const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
 const { startSchedulers } = require("./utils/dataScheduler");
+const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
 const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 dotenv.config();
 
@@ -369,11 +371,11 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
 
 app.use("/api/environmental", environmentalDataRoutes);
 
-
 // Diagnosis Routes
 app.use("/api/diagnosis", diagnosisRoutes);
 
-
+// Notification Routes
+app.use("/api/notifications", notificationRoutes);
 
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
@@ -396,14 +398,17 @@ if (process.env.NODE_ENV === "development") {
 // Start the server only if this file is run directly
 if (require.main === module) {
   connectDB().then(() => {
+    // Initialize Firebase Admin SDK
+    initializeFirebaseAdmin();
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      
+
       // Start the data collection schedulers
       // Weather data every 3 hours, soil moisture every 30 minutes
       startSchedulers(
-        3 * 60 * 60 * 1000,  // 3 hours in milliseconds
-        30 * 60 * 1000       // 30 minutes in milliseconds
+        3 * 60 * 60 * 1000, // 3 hours in milliseconds
+        30 * 60 * 1000 // 30 minutes in milliseconds
       );
     });
   });

@@ -46,6 +46,41 @@ const sendVerificationEmail = async (to, firstName, code) => {
   }
 };
 
+/**
+ * Send general email notification
+ * @param {string} to - Recipient email
+ * @param {string} firstName - Recipient first name
+ * @param {string} subject - Email subject
+ * @param {string} message - Email message
+ */
+const sendEmail = async (to, firstName, subject, message) => {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: "onboarding@resend.dev",
+      to: [to],
+      subject: subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+          <h2 style="color: #4b7f52;">Hello ${firstName},</h2>
+          <p>${message}</p>
+          <p>Best regards,<br>The Tomato Blight AI Team</p>
+        </div>
+      `
+    });
+
+    if (error) {
+      console.error("Email sending failed:", error);
+      throw new Error("Failed to send email");
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Email service error:", error);
+    throw error;
+  }
+};
+
 module.exports = {
-  sendVerificationEmail
+  sendVerificationEmail,
+  sendEmail
 };

@@ -41,6 +41,37 @@ const farmerSchema = new mongoose.Schema(
     },
     refreshToken: {
       type: String
+    },
+    deviceTokens: [
+      {
+        type: String
+      }
+    ],
+    notificationSettings: {
+      enablePush: {
+        type: Boolean,
+        default: true
+      },
+      enableEmail: {
+        type: Boolean,
+        default: true
+      },
+      weatherAlerts: {
+        type: Boolean,
+        default: true
+      },
+      blightRiskAlerts: {
+        type: Boolean,
+        default: true
+      },
+      farmingTips: {
+        type: Boolean,
+        default: true
+      },
+      diagnosisResults: {
+        type: Boolean,
+        default: true
+      }
     }
   },
   { timestamps: true }
@@ -53,10 +84,10 @@ farmerSchema.methods.comparePassword = async function (enteredPassword) {
 
 // Add to the farmerSchema:
 
-farmerSchema.virtual('environmentalData', {
-  ref: 'EnvironmentalData',
-  localField: '_id',
-  foreignField: 'farmerId'
+farmerSchema.virtual("environmentalData", {
+  ref: "EnvironmentalData",
+  localField: "_id",
+  foreignField: "farmerId"
 });
 
 // Generate verification code
