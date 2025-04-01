@@ -48,6 +48,8 @@ router.post("/update-location", authenticateToken, verifyEmail, updateUserLocati
 
 // Manual trigger to refresh environmental data
 // Requires authentication and should be limited to admin users in production
-router.post("/refresh", authenticateToken, verifyEmail, refreshEnvironmentalData);
+router.post("/refresh", authenticateToken, verifyEmail, (req, res) => {
+  refreshEnvironmentalData(req, res, req.body.diagnosis); // Pass diagnosis from request body
+});
 
 module.exports = router;

@@ -9,13 +9,17 @@ const { executeDataCollection } = require("../utils/dataScheduler");
  * @param {Object} res - Express response object
  */
 
-const refreshEnvironmentalData = async (req, res) => {
+const refreshEnvironmentalData = async (req, res, diagnosis) => {
   try {
     // Get user coordinates if provided
     const coordinates = req.body.coordinates || null;
 
-    // Pass the farmerId from the authenticated user
-    const savedData = await executeDataCollection(coordinates, req.user.id);
+    // Pass the farmerId from the authenticated user and the diagnosis
+    const savedData = await executeDataCollection(
+      coordinates,
+      req.user.id,
+      diagnosis
+    );
 
     res.status(200).json({
       message: "Environmental data refreshed successfully",
@@ -23,12 +27,10 @@ const refreshEnvironmentalData = async (req, res) => {
     });
   } catch (error) {
     console.error("Error refreshing environmental data:", error);
-    res
-      .status(500)
-      .json({
-        message: "Failed to refresh environmental data",
-        error: error.message
-      });
+    res.status(500).json({
+      message: "Failed to refresh environmental data",
+      error: error.message
+    });
   }
 };
 
