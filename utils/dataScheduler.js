@@ -1,5 +1,9 @@
-// utils/dataScheduler.js
-const { fetchWeatherData, fetchSoilMoistureData, extractWeatherData, extractSoilMoistureData } = require("./dataServices");
+const {
+  fetchWeatherData,
+  fetchSoilMoistureData,
+  extractWeatherData,
+  extractSoilMoistureData
+} = require("./dataServices");
 const { validateEnvironmentalData } = require("./dataValidator");
 const { addEnvironmentalReading } = require("./dataAggregator");
 
@@ -14,12 +18,18 @@ let weatherIntervalId = null;
 const fetchAndProcessData = async (coordinates = null) => {
   try {
     console.log("Scheduled data fetch triggered at:", new Date().toISOString());
-    
+
     // Default coordinates if none provided
-    const locationCoords = coordinates || { latitude: "0.3321332652604399", longitude: "32.570457568263755" };
-    
+    const locationCoords = coordinates || {
+      latitude: "0.3321332652604399",
+      longitude: "32.570457568263755"
+    };
+
     // Fetch weather data
-    const weatherResponse = await fetchWeatherData(locationCoords.latitude, locationCoords.longitude);
+    const weatherResponse = await fetchWeatherData(
+      locationCoords.latitude,
+      locationCoords.longitude
+    );
     const weatherData = extractWeatherData(weatherResponse);
 
     // Fetch soil moisture data
@@ -29,7 +39,10 @@ const fetchAndProcessData = async (coordinates = null) => {
       const soilData = extractSoilMoistureData(soilResponse);
       soilMoistureValue = soilData.soilMoisture;
     } catch (error) {
-      console.warn("Soil moisture data unavailable, will use estimates:", error.message);
+      console.warn(
+        "Soil moisture data unavailable, will use estimates:",
+        error.message
+      );
     }
 
     // Combine the data
@@ -40,8 +53,9 @@ const fetchAndProcessData = async (coordinates = null) => {
     };
 
     // Validate and clean the data
-    const { cleanedData, isValid, errors } = validateEnvironmentalData(combinedData);
-    
+    const { cleanedData, isValid, errors } =
+      validateEnvironmentalData(combinedData);
+
     if (!isValid) {
       console.warn("Data validation warnings:", errors);
     }
@@ -56,16 +70,28 @@ const fetchAndProcessData = async (coordinates = null) => {
 /**
  * Function to execute the full data collection and storage process
  * @param {Object} coordinates - Optional user coordinates
+ * @param {string} farmerId - Optional farmer ID
+ * @param {string} imageDiagnosis - Optional image diagnosis result
  */
-const executeDataCollection = async (coordinates = null, farmerId = null) => {
+const executeDataCollection = async (
+  coordinates = null,
+  farmerId = null,
+  imageDiagnosis = null
+) => {
   try {
     const data = await fetchAndProcessData(coordinates);
-    const savedData = await addEnvironmentalReading(data, farmerId);
+    const savedData = await addEnvironmentalReading(
+      data,
+      farmerId,
+      imageDiagnosis
+    );
     console.log(
       "Data successfully stored, CRI:",
       savedData.cri,
       "Risk Level:",
-      savedData.riskLevel
+      savedData.riskLevel,
+      "Blight Type:",
+      savedData.blightType // Added blight type to the log
     );
     return savedData;
   } catch (error) {
@@ -78,20 +104,25 @@ const executeDataCollection = async (coordinates = null, farmerId = null) => {
  * Starts the schedulers for data collection
  * @param {number} interval - Interval in milliseconds between data collections
  */
-const startSchedulers = (interval = 4 * 60 * 60 * 1000) => { // Default: 4 hours (6 times a day)
+const startSchedulers = (interval = 4 * 60 * 60 * 1000) => {
+  // Default: 4 hours (6 times a day)
   // Stop any existing schedulers first
   stopSchedulers();
-  
+
   console.log("Starting data collection schedulers...");
-  
+
   // Immediately fetch data when starting the scheduler
   executeDataCollection();
-  
+
   // Set up regular intervals for fetching data
   weatherIntervalId = setInterval(executeDataCollection, interval);
-  
-  console.log(`Data scheduler started. Data will be collected every ${interval / (60 * 1000)} minutes.`);
-  
+
+  console.log(
+    `Data scheduler started. Data will be collected every ${
+      interval / (60 * 1000)
+    } minutes.`
+  );
+
   return {
     weatherIntervalId
   };
@@ -105,7 +136,7 @@ const stopSchedulers = () => {
     clearInterval(weatherIntervalId);
     weatherIntervalId = null;
   }
-  
+
   console.log("Data collection schedulers stopped.");
 };
 

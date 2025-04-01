@@ -10,6 +10,7 @@ const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
 const { startSchedulers } = require("./utils/dataScheduler");
 const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
+const diagnosisRoutes = require("./routes/diagnosisRoutes");
 
 dotenv.config();
 
@@ -367,6 +368,12 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
 // In server.js - replace the direct endpoint definitions with:
 
 app.use("/api/environmental", environmentalDataRoutes);
+
+
+// Diagnosis Routes
+app.use("/api/diagnosis", diagnosisRoutes);
+
+
 
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
