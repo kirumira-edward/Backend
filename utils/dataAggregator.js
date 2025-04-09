@@ -120,6 +120,16 @@ const addEnvironmentalReading = async (
   imageDiagnosis = null
 ) => {
   try {
+    // Ensure soilMoisture is valid
+    if (isNaN(readingData.soilMoisture)) {
+      console.warn(
+        "Invalid soil moisture value (NaN). Using estimate from rainfall."
+      );
+      readingData.soilMoisture = estimateSoilMoisture(
+        readingData.rainfall || 0
+      );
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Set to beginning of day
 
@@ -145,6 +155,17 @@ const addEnvironmentalReading = async (
       rainfall: readingData.rainfall,
       soilMoisture: readingData.soilMoisture
     };
+
+    // Final check to ensure no NaN values in the reading
+    Object.keys(reading).forEach((key) => {
+      if (typeof reading[key] === "number" && isNaN(reading[key])) {
+        if (key === "soilMoisture") {
+          reading[key] = estimateSoilMoisture(reading.rainfall || 0);
+        } else if (key === "rainfall") {
+          reading[key] = 0;
+        }
+      }
+    });
 
     if (dailyRecord) {
       // Add reading to existing record

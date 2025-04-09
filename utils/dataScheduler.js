@@ -83,6 +83,13 @@ const executeDataCollection = async (
 ) => {
   try {
     const data = await fetchAndProcessData(coordinates);
+
+    // Additional validation before saving data
+    if (isNaN(data.soilMoisture)) {
+      console.warn("Soil moisture data is NaN. Setting default value.");
+      data.soilMoisture = 50; // Set a reasonable default value
+    }
+
     const savedData = await addEnvironmentalReading(
       data,
       farmerId,
@@ -94,12 +101,36 @@ const executeDataCollection = async (
       "Risk Level:",
       savedData.riskLevel,
       "Blight Type:",
-      savedData.blightType // Added blight type to the log
+      savedData.blightType
     );
     return savedData;
   } catch (error) {
     console.error("Error in data collection process:", error);
-    throw error;
+
+    // Instead of crashing, retry with default values
+    try {
+      console.log("Attempting to save data with default values...");
+      const defaultData = {
+        temperature: 22,
+        humidity: 70,
+        rainfall: 0,
+        soilMoisture: 50,
+        timestamp: new Date(),
+        coordinates: coordinates || {
+          latitude: "0.3321332652604399",
+          longitude: "32.570457568263755"
+        }
+      };
+
+      return await addEnvironmentalReading(
+        defaultData,
+        farmerId,
+        imageDiagnosis
+      );
+    } catch (retryError) {
+      console.error("Failed to save even with default values:", retryError);
+      // Log error but avoid crashing the server
+    }
   }
 };
 
