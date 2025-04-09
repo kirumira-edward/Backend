@@ -27,9 +27,10 @@ const validateEnvironmentalData = (data) => {
   // Handle missing soil moisture by estimating from rainfall if available
   if (
     cleanedData.soilMoisture === undefined ||
-    cleanedData.soilMoisture === null
+    cleanedData.soilMoisture === null ||
+    isNaN(cleanedData.soilMoisture) // Add explicit check for NaN
   ) {
-    errors.push("Soil moisture data missing, will use estimate");
+    errors.push("Soil moisture data missing or invalid, will use estimate");
     // Use the estimateSoilMoisture function to calculate a value based on rainfall
     cleanedData.soilMoisture = estimateSoilMoisture(cleanedData.rainfall || 0);
   }
@@ -47,7 +48,6 @@ const validateEnvironmentalData = (data) => {
  * @returns {Object} CRI value and risk level
  */
 const calculateCRI = (data) => {
-
   // Make sure we have soil moisture data, estimate if not available
   if (data.soilMoisture === undefined || data.soilMoisture === null) {
     data.soilMoisture = estimateSoilMoisture(data.rainfall || 0);
@@ -129,16 +129,16 @@ const calculateCRI = (data) => {
 
   // Categorize based on Early Blight risk (CRI < 50)
   if (cri < 50) {
-     blightType = "Early Blight";
-     if (cri >= 40) {
-       riskLevel = "Low";
-     } else if (cri >= 30) {
-       riskLevel = "Medium";
-     } else if (cri >= 20) {
-       riskLevel = "High";
-     } else {
-       riskLevel = "Critical";
-     }
+    blightType = "Early Blight";
+    if (cri >= 40) {
+      riskLevel = "Low";
+    } else if (cri >= 30) {
+      riskLevel = "Medium";
+    } else if (cri >= 20) {
+      riskLevel = "High";
+    } else {
+      riskLevel = "Critical";
+    }
   }
   // Categorize based on Late Blight risk (CRI > 50)
   else if (cri > 50) {
