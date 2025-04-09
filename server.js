@@ -5,7 +5,15 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
-const Farmer = require("./models/Farmer");
+// Import error handler
+const { handleApiError } = require("./utils/errorHandler");
+// Import models using a try-catch to prevent OverwriteModelError
+let Farmer;
+try {
+  Farmer = mongoose.model("Farmer");
+} catch (error) {
+  Farmer = require("./models/Farmer");
+}
 const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
 const { startSchedulers } = require("./utils/dataScheduler");
@@ -84,7 +92,7 @@ async function verifyEmail(req, res, next) {
 }
 
 // Generate access and refresh tokens
-function generateTokens(user) {
+function generateTokens(user, rememberMe = false) {
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
     expiresIn: "15m"
   });
@@ -92,10 +100,35 @@ function generateTokens(user) {
   const refreshToken = jwt.sign(
     { id: user._id },
     process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: "7d" }
+    { expiresIn: rememberMe ? "30d" : "7d" }
   );
 
   return { accessToken, refreshToken };
+}
+
+// Refresh user tokens
+async function refreshUserTokens(refreshToken) {
+  const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+  const farmer = await Farmer.findOne({
+    _id: decoded.id,
+    refreshToken: refreshToken
+  });
+
+  if (!farmer) {
+    throw new Error("Invalid refresh token.");
+  }
+
+  const tokens = generateTokens(farmer, farmer.rememberMe);
+
+  farmer.refreshToken = tokens.refreshToken;
+  await farmer.save();
+
+  return {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    farmer
+  };
 }
 
 // ROUTES
@@ -203,7 +236,7 @@ app.post("/api/resend-verification", async (req, res) => {
 
 // Login
 app.post("/api/login", async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, rememberMe = false } = req.body;
 
   try {
     const farmer = await Farmer.findOne({ email });
@@ -225,8 +258,14 @@ app.post("/api/login", async (req, res) => {
       });
     }
 
+    // Update the remember me preference
+    farmer.rememberMe = rememberMe;
+
+    // Update last active timestamp
+    farmer.lastActive = new Date();
+
     // Generate tokens
-    const { accessToken, refreshToken } = generateTokens(farmer);
+    const { accessToken, refreshToken } = generateTokens(farmer, rememberMe);
 
     // Save refresh token to database
     farmer.refreshToken = refreshToken;
@@ -235,7 +274,7 @@ app.post("/api/login", async (req, res) => {
     // Set refresh token as HTTP-only cookie
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000, // 7 days or 30 days
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict"
     });
@@ -266,35 +305,33 @@ app.post("/api/refresh-token", async (req, res) => {
   }
 
   try {
-    // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-
-    // Get farmer from database
-    const farmer = await Farmer.findOne({
-      _id: decoded.id,
-      refreshToken: refreshToken
-    });
-
-    if (!farmer) {
-      return res.status(403).json({ message: "Invalid refresh token." });
-    }
-
-    // Generate new tokens
-    const tokens = generateTokens(farmer);
-
-    // Update refresh token in database
-    farmer.refreshToken = tokens.refreshToken;
-    await farmer.save();
+    const {
+      accessToken,
+      refreshToken: newRefreshToken,
+      farmer
+    } = await refreshUserTokens(refreshToken);
 
     // Set new refresh token as HTTP-only cookie
-    res.cookie("refreshToken", tokens.refreshToken, {
+    res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: farmer.rememberMe
+        ? 30 * 24 * 60 * 60 * 1000
+        : 7 * 24 * 60 * 60 * 1000,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict"
     });
 
-    res.json({ accessToken: tokens.accessToken });
+    res.json({
+      accessToken,
+      user: {
+        id: farmer._id,
+        firstName: farmer.firstName,
+        lastName: farmer.lastName,
+        email: farmer.email,
+        profilePhoto: farmer.profilePhoto,
+        lastActive: farmer.lastActive
+      }
+    });
   } catch (err) {
     res.status(403).json({ message: "Invalid refresh token." });
   }
@@ -365,9 +402,95 @@ app.put("/api/user/photo", authenticateToken, verifyEmail, async (req, res) => {
   }
 });
 
-// ENVIRONMENTAL DATA ROUTES
+// Get user permissions
+app.get(
+  "/api/user/permissions",
+  authenticateToken,
+  verifyEmail,
+  async (req, res) => {
+    try {
+      const {
+        getUserPermissions
+      } = require("./controllers/notificationController");
+      await getUserPermissions(req, res);
+    } catch (err) {
+      handleApiError(err, res, "Error fetching user permissions");
+    }
+  }
+);
 
-// In server.js - replace the direct endpoint definitions with:
+// Update user permissions
+app.put(
+  "/api/user/permissions",
+  authenticateToken,
+  verifyEmail,
+  async (req, res) => {
+    try {
+      const farmer = await Farmer.findById(req.user.id);
+      if (!farmer) {
+        return res.status(404).json({ message: "Farmer not found" });
+      }
+
+      // Update permissions (store them as part of user preferences)
+      if (!farmer.preferences) {
+        farmer.preferences = {};
+      }
+
+      // Only update fields that were provided
+      if (req.body.camera !== undefined)
+        farmer.preferences.camera = req.body.camera;
+      if (req.body.location !== undefined)
+        farmer.preferences.location = req.body.location;
+      if (req.body.notifications !== undefined)
+        farmer.preferences.notifications = req.body.notifications;
+      if (req.body.dataSync !== undefined)
+        farmer.preferences.dataSync = req.body.dataSync;
+      if (req.body.analytics !== undefined)
+        farmer.preferences.analytics = req.body.analytics;
+      if (req.body.offline !== undefined)
+        farmer.preferences.offline = req.body.offline;
+
+      await farmer.save();
+
+      res.status(200).json({
+        message: "User permissions updated successfully",
+        permissions: farmer.preferences
+      });
+    } catch (err) {
+      handleApiError(err, res, "Error updating user permissions");
+    }
+  }
+);
+
+// Get notification settings
+app.get(
+  "/api/user/notification-settings",
+  authenticateToken,
+  verifyEmail,
+  async (req, res) => {
+    try {
+      const farmer = await Farmer.findById(req.user.id);
+      if (!farmer) {
+        return res.status(404).json({ message: "Farmer not found" });
+      }
+
+      res.json(
+        farmer.notificationSettings || {
+          enablePush: true,
+          enableEmail: true,
+          weatherAlerts: true,
+          blightRiskAlerts: true,
+          farmingTips: true,
+          diagnosisResults: true
+        }
+      );
+    } catch (err) {
+      handleApiError(err, res, "Error fetching notification settings");
+    }
+  }
+);
+
+// ENVIRONMENTAL DATA ROUTES
 
 app.use("/api/environmental", environmentalDataRoutes);
 
