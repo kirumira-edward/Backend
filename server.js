@@ -21,6 +21,7 @@ const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
 const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const userRoutes = require("./routes/userRoutes");
 
 dotenv.config();
 
@@ -499,6 +500,9 @@ app.use("/api/diagnosis", diagnosisRoutes);
 
 // Notification Routes
 app.use("/api/notifications", notificationRoutes);
+
+// User Account Routes
+app.use("/api/user", userRoutes);
 
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
