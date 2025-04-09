@@ -21,6 +21,7 @@ const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
 const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const userRoutes = require("./routes/userRoutes");
 
 dotenv.config();
 
@@ -500,6 +501,9 @@ app.use("/api/diagnosis", diagnosisRoutes);
 // Notification Routes
 app.use("/api/notifications", notificationRoutes);
 
+// User Account Routes
+app.use("/api/user", userRoutes);
+
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {
   app.get("/api/dev/verification-code/:email", async (req, res) => {
@@ -529,10 +533,10 @@ if (require.main === module) {
 
       // Start the data collection schedulers
       // Weather data every 3 hours, soil moisture every 30 minutes
-      startSchedulers(
-        3 * 60 * 60 * 1000, // 3 hours in milliseconds
-        30 * 60 * 1000 // 30 minutes in milliseconds
-      );
+      //startSchedulers(
+        //3 * 60 * 60 * 1000, // 3 hours in milliseconds
+        //30 * 60 * 1000 // 30 minutes in milliseconds
+      //);
     });
   });
 }
