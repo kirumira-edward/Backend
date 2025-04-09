@@ -533,10 +533,10 @@ if (require.main === module) {
 
       // Start the data collection schedulers
       // Weather data every 3 hours, soil moisture every 30 minutes
-      //startSchedulers(
-        //3 * 60 * 60 * 1000, // 3 hours in milliseconds
-        //30 * 60 * 1000 // 30 minutes in milliseconds
-      //);
+      startSchedulers(
+        3 * 60 * 60 * 1000, // 3 hours in milliseconds
+        30 * 60 * 1000 // 30 minutes in milliseconds
+      );
     });
   });
 }
