@@ -1,5 +1,12 @@
 const Notification = require("../models/Notification");
-const Farmer = require("../models/Farmer");
+// Import using try-catch to prevent OverwriteModelError
+const mongoose = require("mongoose");
+let Farmer;
+try {
+  Farmer = mongoose.model("Farmer");
+} catch (error) {
+  Farmer = require("../models/Farmer");
+}
 const {
   sendNotification,
   markNotificationAsRead,
@@ -7,6 +14,32 @@ const {
   registerDeviceToken
 } = require("../utils/notificationService");
 const { sendFarmingTip } = require("../utils/notificationTriggers");
+
+/**
+ * Get VAPID public key for push notifications
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getVapidKey = (req, res) => {
+  try {
+    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+
+    if (!vapidPublicKey) {
+      console.error("VAPID_PUBLIC_KEY not set in environment variables");
+      return res.status(500).json({
+        message: "Push notification service is not properly configured"
+      });
+    }
+
+    res.status(200).json({ vapidPublicKey });
+  } catch (error) {
+    console.error("Error retrieving VAPID key:", error);
+    res.status(500).json({
+      message: "Failed to retrieve VAPID key",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined
+    });
+  }
+};
 
 /**
  * Get notifications for authenticated farmer
@@ -116,8 +149,24 @@ const registerDevice = async (req, res) => {
     if (!deviceToken) {
       return res.status(400).json({ message: "Device token is required" });
     }
+    
+    // Try to parse the device token if it's a stringified JSON
+    let processedToken = deviceToken;
+    try {
+      // Check if it's a string representation of a JSON object
+      const parsed = JSON.parse(deviceToken);
+      
+      // If the parsed result has 'endpoint', it's most likely a PushSubscription
+      if (parsed && parsed.endpoint) {
+        // Store the full stringified subscription
+        processedToken = deviceToken;
+      }
+    } catch (e) {
+      // Not a JSON string, use as-is
+      processedToken = deviceToken;
+    }
 
-    await registerDeviceToken(req.user.id, deviceToken);
+    await registerDeviceToken(req.user.id, processedToken);
 
     res.status(200).json({
       message: "Device registered successfully"
@@ -201,11 +250,50 @@ const sendTip = async (req, res) => {
   }
 };
 
+/**
+ * Get user app permissions
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const getUserPermissions = async (req, res) => {
+  try {
+    const farmer = await Farmer.findById(req.user.id);
+
+    if (!farmer) {
+      return res.status(404).json({ message: "Farmer not found" });
+    }
+
+    // Get stored preferences or use defaults
+    const preferences = farmer.preferences || {};
+
+    res.status(200).json({
+      camera: preferences.camera || false,
+      location: preferences.location || Boolean(farmer.defaultLocation),
+      notifications:
+        preferences.notifications ||
+        Boolean(farmer.notificationSettings?.enablePush),
+      dataSync:
+        preferences.dataSync !== undefined ? preferences.dataSync : true,
+      analytics:
+        preferences.analytics !== undefined ? preferences.analytics : true,
+      offline: preferences.offline || false
+    });
+  } catch (error) {
+    console.error("Error fetching user permissions:", error);
+    res.status(500).json({
+      message: "Failed to fetch user permissions",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getUserNotifications,
   markAsRead,
   markAllAsRead,
   registerDevice,
   updateNotificationSettings,
-  sendTip
+  sendTip,
+  getVapidKey,
+  getUserPermissions
 };

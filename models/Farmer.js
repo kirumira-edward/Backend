@@ -72,6 +72,40 @@ const farmerSchema = new mongoose.Schema(
         type: Boolean,
         default: true
       }
+    },
+    rememberMe: {
+      type: Boolean,
+      default: false
+    },
+    lastActive: {
+      type: Date,
+      default: Date.now
+    },
+    preferences: {
+      camera: {
+        type: Boolean,
+        default: false
+      },
+      location: {
+        type: Boolean,
+        default: false
+      },
+      notifications: {
+        type: Boolean,
+        default: false
+      },
+      dataSync: {
+        type: Boolean,
+        default: true
+      },
+      analytics: {
+        type: Boolean,
+        default: true
+      },
+      offline: {
+        type: Boolean,
+        default: false
+      }
     }
   },
   { timestamps: true }
