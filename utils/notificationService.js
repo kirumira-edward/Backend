@@ -2,27 +2,9 @@ const Notification = require("../models/Notification");
 const Farmer = require("../models/Farmer");
 const { sendEmail } = require("./emailService");
 const { admin } = require("./firebaseAdmin");
-const webpush = require("web-push");
 const dotenv = require("dotenv");
 
 dotenv.config();
-
-// Configure web-push with VAPID keys
-if (
-  process.env.VAPID_PUBLIC_KEY &&
-  process.env.VAPID_PRIVATE_KEY &&
-  process.env.VAPID_SUBJECT
-) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT,
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-} else {
-  console.warn(
-    "VAPID keys not configured. Web Push notifications will not work."
-  );
-}
 
 /**
  * Send a notification to a specific farmer
@@ -120,85 +102,6 @@ const checkNotificationSettings = (farmer, type) => {
 };
 
 /**
- * Send push notification using Web Push API (for PWA)
- * @param {Object} notification - Notification document
- * @returns {Promise<void>}
- */
-const sendWebPushNotification = async (notification) => {
-  try {
-    // Skip if no device tokens
-    if (!notification.deviceTokens || notification.deviceTokens.length === 0) {
-      return;
-    }
-
-    // Create the message payload
-    const payload = JSON.stringify({
-      notification: {
-        title: notification.title,
-        body: notification.message,
-        icon: "/android-chrome-192x192.png",
-        badge: "/favicon.ico",
-        vibrate: [200, 100, 200]
-      },
-      data: {
-        notificationId: notification._id.toString(),
-        type: notification.type,
-        priority: notification.priority,
-        url: notification.data.url || "/",
-        ...notification.data // Add any additional data
-      }
-    });
-
-    // Send to all registered subscriptions for this user
-    const sendPromises = notification.deviceTokens.map(async (token) => {
-      try {
-        // Parse the token (could be a string or already an object)
-        let subscription;
-        try {
-          subscription = typeof token === "string" ? JSON.parse(token) : token;
-        } catch (err) {
-          console.error("Error parsing subscription:", err);
-          return { success: false, token };
-        }
-
-        // Send the notification
-        await webpush.sendNotification(subscription, payload);
-        return { success: true, token };
-      } catch (error) {
-        console.error("Error sending Web Push notification:", error);
-        return { success: false, token, error };
-      }
-    });
-
-    // Wait for all send operations to complete
-    const results = await Promise.all(sendPromises);
-
-    // Process results to identify and remove failed tokens
-    const failedTokens = results
-      .filter((result) => !result.success)
-      .map((result) => result.token);
-
-    if (failedTokens.length > 0) {
-      console.log("Web Push notification failed for tokens:", failedTokens);
-
-      // Remove failed tokens from the user
-      await Farmer.findByIdAndUpdate(notification.farmerId, {
-        $pull: { deviceTokens: { $in: failedTokens } }
-      });
-    }
-
-    console.log(
-      `Successfully sent Web Push notifications: ${
-        results.filter((r) => r.success).length
-      }/${notification.deviceTokens.length}`
-    );
-  } catch (error) {
-    console.error("Error in sendWebPushNotification:", error);
-    // Don't throw to prevent breaking the whole notification process
-  }
-};
-
-/**
  * Send push notification using Firebase Cloud Messaging
  * @param {Object} notification - Notification document
  * @returns {Promise<void>}
@@ -206,65 +109,57 @@ const sendWebPushNotification = async (notification) => {
 const sendPushNotification = async (notification) => {
   try {
     // Skip if no device tokens or Firebase not initialized
-    if (!notification.deviceTokens || notification.deviceTokens.length === 0) {
+    if (
+      !notification.deviceTokens ||
+      notification.deviceTokens.length === 0 ||
+      !admin
+    ) {
+      console.log("No device tokens or Firebase not initialized");
       return;
     }
 
-    // Try sending via Web Push for PWA installations
-    await sendWebPushNotification(notification);
+    // Create the message
+    const message = {
+      notification: {
+        title: notification.title,
+        body: notification.message
+      },
+      data: {
+        notificationId: notification._id.toString(),
+        type: notification.type,
+        priority: notification.priority,
+        ...notification.data // Add any additional data
+      },
+      tokens: notification.deviceTokens
+    };
 
-    // Also try Firebase for mobile app installations if configured
-    if (admin) {
-      // Filter out tokens that look like Web Push subscriptions (they have JSON structure)
-      const firebaseTokens = notification.deviceTokens.filter((token) => {
-        try {
-          const parsed = JSON.parse(token);
-          return false; // If it parses as JSON, it's likely a Web Push subscription
-        } catch (e) {
-          return true; // Not JSON, likely a Firebase token
+    // Send the message
+    const response = await admin.messaging().sendMulticast(message);
+
+    console.log(
+      `Successfully sent Firebase push notifications: ${response.successCount}/${notification.deviceTokens.length}`
+    );
+
+    // If any tokens failed, log them and remove from the user's devices
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          failedTokens.push(notification.deviceTokens[idx]);
         }
       });
 
-      if (firebaseTokens.length === 0) {
-        return; // No Firebase tokens to send to
-      }
-
-      // Create the message
-      const message = {
-        notification: {
-          title: notification.title,
-          body: notification.message
-        },
-        data: {
-          notificationId: notification._id.toString(),
-          type: notification.type,
-          priority: notification.priority,
-          ...notification.data // Add any additional data
-        },
-        tokens: firebaseTokens
-      };
-
-      // Send the message
-      const response = await admin.messaging().sendMulticast(message);
-
+      // Log failed tokens
       console.log(
-        `Successfully sent Firebase push notifications: ${response.successCount}/${firebaseTokens.length}`
+        "Firebase push notification failed for tokens:",
+        failedTokens
       );
 
-      // If any tokens failed, log them and remove from the user's devices
-      if (response.failureCount > 0) {
-        const failedTokens = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            failedTokens.push(firebaseTokens[idx]);
-          }
+      // Remove failed tokens from the user
+      if (failedTokens.length > 0) {
+        await Farmer.findByIdAndUpdate(notification.farmerId, {
+          $pull: { deviceTokens: { $in: failedTokens } }
         });
-
-        // Log failed tokens
-        console.log(
-          "Firebase push notification failed for tokens:",
-          failedTokens
-        );
       }
     }
   } catch (error) {

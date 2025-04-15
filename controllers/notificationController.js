@@ -17,25 +17,28 @@ const { sendFarmingTip } = require("../utils/notificationTriggers");
 
 /**
  * Get VAPID public key for push notifications
+ * This is kept for backward compatibility but returns Firebase config
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 const getVapidKey = (req, res) => {
   try {
-    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-
-    if (!vapidPublicKey) {
-      console.error("VAPID_PUBLIC_KEY not set in environment variables");
-      return res.status(500).json({
-        message: "Push notification service is not properly configured"
-      });
-    }
-
-    res.status(200).json({ vapidPublicKey });
+    // Return Firebase configuration for web
+    res.status(200).json({
+      firebaseConfig: {
+        apiKey: process.env.FIREBASE_API_KEY,
+        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+        appId: process.env.FIREBASE_APP_ID,
+        measurementId: process.env.FIREBASE_MEASUREMENT_ID
+      }
+    });
   } catch (error) {
-    console.error("Error retrieving VAPID key:", error);
+    console.error("Error retrieving Firebase config:", error);
     res.status(500).json({
-      message: "Failed to retrieve VAPID key",
+      message: "Failed to retrieve Firebase configuration",
       error: process.env.NODE_ENV === "development" ? error.message : undefined
     });
   }
@@ -149,24 +152,9 @@ const registerDevice = async (req, res) => {
     if (!deviceToken) {
       return res.status(400).json({ message: "Device token is required" });
     }
-    
-    // Try to parse the device token if it's a stringified JSON
-    let processedToken = deviceToken;
-    try {
-      // Check if it's a string representation of a JSON object
-      const parsed = JSON.parse(deviceToken);
-      
-      // If the parsed result has 'endpoint', it's most likely a PushSubscription
-      if (parsed && parsed.endpoint) {
-        // Store the full stringified subscription
-        processedToken = deviceToken;
-      }
-    } catch (e) {
-      // Not a JSON string, use as-is
-      processedToken = deviceToken;
-    }
 
-    await registerDeviceToken(req.user.id, processedToken);
+    // Store FCM token directly
+    await registerDeviceToken(req.user.id, deviceToken);
 
     res.status(200).json({
       message: "Device registered successfully"

@@ -25,6 +25,10 @@ const triggerBlightRiskNotification = async (environmentalData) => {
     let title = `${riskLevel} Risk of ${blightType} Detected`;
     let message = "";
 
+    // Add a call-to-action for diagnostic confirmation
+    const diagnosticCTA =
+      "Take a photo of your plants now to confirm this assessment and get personalized recommendations.";
+
     if (blightType === "Early Blight") {
       message = `We've detected a ${riskLevel.toLowerCase()} risk of Early Blight in your area. Current CRI: ${environmentalData.cri.toFixed(
         1
@@ -33,13 +37,16 @@ const triggerBlightRiskNotification = async (environmentalData) => {
       // Add recommendations based on risk level
       if (riskLevel === "Medium") {
         message +=
-          "Consider monitoring your plants closely and applying preventive fungicides.";
+          "Consider monitoring your plants closely and applying preventive fungicides. " +
+          diagnosticCTA;
       } else if (riskLevel === "High") {
         message +=
-          "Immediate action recommended: Apply approved fungicides and inspect plants daily.";
+          "Immediate action recommended: Apply approved fungicides and inspect plants daily. " +
+          diagnosticCTA;
       } else if (riskLevel === "Critical") {
         message +=
-          "URGENT: Apply fungicides immediately and consider removing severely affected plants to prevent spread.";
+          "URGENT: Apply fungicides immediately and consider removing severely affected plants to prevent spread. " +
+          diagnosticCTA;
       }
     } else if (blightType === "Late Blight") {
       message = `We've detected a ${riskLevel.toLowerCase()} risk of Late Blight in your area. Current CRI: ${environmentalData.cri.toFixed(
@@ -49,17 +56,20 @@ const triggerBlightRiskNotification = async (environmentalData) => {
       // Add recommendations based on risk level
       if (riskLevel === "Medium") {
         message +=
-          "Begin preventive measures such as applying copper-based fungicides and avoiding overhead irrigation.";
+          "Begin preventive measures such as applying copper-based fungicides and avoiding overhead irrigation. " +
+          diagnosticCTA;
       } else if (riskLevel === "High") {
         message +=
-          "Apply protective fungicides immediately and reduce humidity around plants when possible.";
+          "Apply protective fungicides immediately and reduce humidity around plants when possible. " +
+          diagnosticCTA;
       } else if (riskLevel === "Critical") {
         message +=
-          "URGENT: Apply fungicides immediately, remove affected plants, and consider protective measures for remaining crops.";
+          "URGENT: Apply fungicides immediately, remove affected plants, and consider protective measures for remaining crops. " +
+          diagnosticCTA;
       }
     }
 
-    // Send the notification
+    // Send the notification with action data for deep linking
     await sendNotification(
       environmentalData.farmerId,
       title,
@@ -70,7 +80,9 @@ const triggerBlightRiskNotification = async (environmentalData) => {
         cri: environmentalData.cri,
         riskLevel: riskLevel,
         blightType: blightType,
-        date: environmentalData.date
+        date: environmentalData.date,
+        action: "diagnose", // Add action field for the frontend to use
+        url: "/diagnosis" // Add direct deep link to diagnosis page
       }
     );
   } catch (error) {
