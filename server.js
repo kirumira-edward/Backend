@@ -22,6 +22,12 @@ const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const userRoutes = require("./routes/userRoutes");
+// Import user controller functions
+const {
+  forgotPassword,
+  verifyResetToken,
+  resetPassword
+} = require("./controllers/userController");
 
 dotenv.config();
 
@@ -487,6 +493,48 @@ app.get(
       );
     } catch (err) {
       handleApiError(err, res, "Error fetching notification settings");
+    }
+  }
+);
+
+// Forgot password - request reset
+app.post("/api/forgot-password", async (req, res) => {
+  try {
+    await forgotPassword(req, res);
+  } catch (err) {
+    handleApiError(err, res, "Error processing forgot password request");
+  }
+});
+
+// Verify reset token
+app.post("/api/verify-reset-token", async (req, res) => {
+  try {
+    await verifyResetToken(req, res);
+  } catch (err) {
+    handleApiError(err, res, "Error verifying reset token");
+  }
+});
+
+// Reset password with token
+app.post("/api/reset-password", async (req, res) => {
+  try {
+    await resetPassword(req, res);
+  } catch (err) {
+    handleApiError(err, res, "Error resetting password");
+  }
+});
+
+// Delete account route
+app.post(
+  "/api/user/delete-account",
+  authenticateToken,
+  verifyEmail,
+  async (req, res) => {
+    try {
+      const { deleteAccount } = require("./controllers/userController");
+      await deleteAccount(req, res);
+    } catch (err) {
+      handleApiError(err, res, "Error deleting account");
     }
   }
 );
