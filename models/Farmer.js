@@ -106,6 +106,12 @@ const farmerSchema = new mongoose.Schema(
         type: Boolean,
         default: false
       }
+    },
+    resetPasswordToken: {
+      type: String
+    },
+    resetPasswordExpires: {
+      type: Date
     }
   },
   { timestamps: true }
@@ -132,6 +138,18 @@ farmerSchema.methods.generateVerificationCode = function () {
   // Set code and expiration (1 hour from now)
   this.verificationCode = code;
   this.verificationCodeExpires = Date.now() + 3600000; // 1 hour
+
+  return code;
+};
+
+// Add method to generate password reset token
+farmerSchema.methods.generateResetPasswordToken = function () {
+  // Generate a random 6-digit code
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  // Set code and expiration (1 hour from now)
+  this.resetPasswordToken = code;
+  this.resetPasswordExpires = Date.now() + 3600000; // 1 hour
 
   return code;
 };
