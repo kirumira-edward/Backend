@@ -22,6 +22,10 @@ const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const userRoutes = require("./routes/userRoutes");
+const mapRoutes = require("./routes/mapRoutes");
+const authRoutes = require("./routes/authRoutes");
+// Import analytics routes properly
+const analyticsRoutes = require("./routes/analyticsRoutes");
 // Import user controller functions
 const {
   forgotPassword,
@@ -540,7 +544,6 @@ app.post(
 );
 
 // ENVIRONMENTAL DATA ROUTES
-
 app.use("/api/environmental", environmentalDataRoutes);
 
 // Diagnosis Routes
@@ -551,6 +554,15 @@ app.use("/api/notifications", notificationRoutes);
 
 // User Account Routes
 app.use("/api/user", userRoutes);
+
+// Map Routes - ensure this is registered
+app.use("/api/map", mapRoutes);
+
+// Auth Routes
+app.use("/api/auth", authRoutes);
+
+// Analytics Routes
+app.use("/api/analytics", analyticsRoutes);
 
 // Development endpoint to get verification code (only in development)
 if (process.env.NODE_ENV === "development") {

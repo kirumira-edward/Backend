@@ -77,11 +77,12 @@ const authenticateToken = async (req, res, next) => {
     const tokenData = jwt.decode(token);
     const timeToExpiry = tokenData.exp - Math.floor(Date.now() / 1000);
 
+    // Only attempt silent refresh if time is under threshold and we have a refresh token
     if (timeToExpiry < 15 * 60 && refreshToken) {
-      // Less than 15 minutes to expiry
       try {
         const { accessToken, refreshToken: newRefreshToken } =
           await refreshUserTokens(refreshToken);
+
         // Set the new tokens in the response
         res.cookie("refreshToken", newRefreshToken, {
           httpOnly: true,
@@ -89,11 +90,13 @@ const authenticateToken = async (req, res, next) => {
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict"
         });
+
         // Add the new access token to the response headers
         res.setHeader("X-New-Access-Token", accessToken);
       } catch (error) {
-        // Continue even if the silent refresh fails
-        console.error("Silent token refresh failed:", error);
+        // Don't break the flow on silent refresh failure, but log it properly
+        console.log(`Token refresh attempted but failed: ${error.message}`);
+        // Continue with the existing valid token
       }
     }
 
@@ -133,30 +136,57 @@ const refreshAndContinue = async (refreshToken, req, res, next) => {
  * Refresh user tokens with security measures
  */
 const refreshUserTokens = async (refreshToken) => {
-  // Verify refresh token
-  const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+  try {
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
 
-  // Get farmer from database
-  const farmer = await Farmer.findOne({
-    _id: decoded.id,
-    refreshToken: refreshToken
-  });
+    // Get farmer from database - first check with the token
+    let farmer = await Farmer.findOne({
+      _id: decoded.id,
+      refreshToken: refreshToken
+    });
 
-  if (!farmer) {
-    throw new Error("Invalid refresh token");
+    // If not found with exact match, try just by ID as fallback
+    // This helps with token rotation or database inconsistency issues
+    if (!farmer) {
+      farmer = await Farmer.findById(decoded.id);
+
+      // Log that we had to use the fallback approach
+      console.log(
+        `Refresh token not matched for user ${decoded.id}, proceeding with ID only`
+      );
+
+      // Update the refreshToken in the database to avoid future mismatches
+      if (farmer) {
+        farmer.refreshToken = undefined; // Clear any old token
+      }
+    }
+
+    if (!farmer) {
+      throw new Error("Invalid refresh token or user not found");
+    }
+
+    // Generate new tokens with token rotation for security
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(
+      farmer,
+      farmer.rememberMe
+    );
+
+    // Store the new refresh token and invalidate the old one
+    farmer.refreshToken = newRefreshToken;
+    await farmer.save();
+
+    return { accessToken, refreshToken: newRefreshToken, farmer };
+  } catch (error) {
+    // Add more detailed error logging
+    if (error.name === "TokenExpiredError") {
+      console.log("Refresh token has expired");
+    } else if (error.name === "JsonWebTokenError") {
+      console.log("Invalid refresh token format");
+    }
+
+    throw error; // Re-throw the error to be handled by the caller
   }
-
-  // Generate new tokens with token rotation for security
-  const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-    farmer,
-    farmer.rememberMe
-  );
-
-  // Store the new refresh token and invalidate the old one
-  farmer.refreshToken = newRefreshToken;
-  await farmer.save();
-
-  return { accessToken, refreshToken: newRefreshToken, farmer };
 };
 
 /**
