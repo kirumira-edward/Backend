@@ -1,8 +1,11 @@
+const axios = require("axios");
+
 // controllers/environmentalDataController.js
 const EnvironmentalData = require("../models/EnvironmentalData");
 const Farmer = require("../models/Farmer");
 const { executeDataCollection } = require("../utils/dataScheduler");
 const { generateMockEnvironmentalData } = require("../utils/dataServices");
+const { fetchAndProcessForecast, generateMockWeatherData, processWeatherForecast } = require("../utils/weatherService");
 
 /**
  * Fetches the latest environmental data from APIs and saves to database
@@ -283,6 +286,7 @@ const updateUserLocation = async (req, res) => {
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
+
 const getWeatherForecast = async (req, res) => {
   try {
     // Get the farmer's location
@@ -296,26 +300,37 @@ const getWeatherForecast = async (req, res) => {
 
     const { latitude, longitude } = farmer.defaultLocation;
 
-    // Import axios for HTTP requests
-    const axios = require("axios");
-
-    // Fetch 5-day forecast from OpenWeather API or other weather service
-    let weatherData;
     try {
-      weatherData = await fetchWeatherForecast(axios, latitude, longitude);
+      // Fetch and process forecast data
+      const forecastData = await fetchAndProcessForecast(latitude, longitude);
+
+      res.status(200).json({
+        message: "Forecast data retrieved successfully",
+        forecast: forecastData,
+        source: "openweather" // Indicate this is real data
+      });
     } catch (error) {
-      console.error("Error fetching weather forecast:", error);
-      // Generate mock data if API call fails
-      weatherData = generateMockWeatherData();
+      console.error("Weather forecast error:", error);
+
+      // Only use mock data in development
+      if (process.env.NODE_ENV === "development") {
+        const mockData = generateMockWeatherData();
+        const processedForecast = processWeatherForecast(mockData);
+
+        return res.status(200).json({
+          message: "Using mock forecast data (API call failed)",
+          forecast: processedForecast,
+          source: "mock"
+        });
+      }
+
+      // In production, return an error
+      return res.status(503).json({
+        message:
+          "Weather forecast service unavailable. Please try again later.",
+        error: error.message
+      });
     }
-
-    // Process the forecast data
-    const processedForecast = processWeatherForecast(weatherData);
-
-    res.status(200).json({
-      message: "Forecast data retrieved successfully",
-      forecast: processedForecast
-    });
   } catch (error) {
     console.error("Error retrieving weather forecast:", error);
     res.status(500).json({
@@ -350,120 +365,6 @@ const fetchWeatherForecast = async (axios, lat, lon) => {
   }
 };
 
-/**
- * Generate mock weather data when API fails
- * @returns {Object} Mock weather data
- */
-const generateMockWeatherData = () => {
-  const now = Math.floor(Date.now() / 1000);
-  const list = [];
-
-  // Create 5 days of data, 8 measurements per day (every 3 hours)
-  for (let day = 0; day < 5; day++) {
-    for (let hour = 0; hour < 24; hour += 3) {
-      const temp = 15 + Math.random() * 15; // Temperature between 15-30°C
-      const humidity = 40 + Math.random() * 40; // Humidity between 40-80%
-      const pop = Math.random() * 0.7; // Probability of precipitation 0-70%
-
-      list.push({
-        dt: now + day * 86400 + hour * 3600,
-        main: {
-          temp,
-          humidity
-        },
-        weather: [
-          {
-            id: Math.random() > 0.5 ? 800 : 500,
-            main: Math.random() > 0.5 ? "Clear" : "Rain",
-            description: Math.random() > 0.5 ? "clear sky" : "light rain",
-            icon: Math.random() > 0.5 ? "01d" : "10d"
-          }
-        ],
-        pop, // Probability of precipitation
-        rain: pop > 0.3 ? { "3h": Math.random() * 5 } : undefined
-      });
-    }
-  }
-
-  return {
-    list,
-    city: {
-      name: "Mock City",
-      country: "UG"
-    }
-  };
-};
-
-/**
- * Process weather forecast data
- * @param {Object} weatherData - Raw weather data from API or mock
- * @returns {Array} Processed forecast data with blight risk assessment
- */
-const processWeatherForecast = (weatherData) => {
-  const forecast = [];
-  const list = weatherData.list || [];
-
-  // Group forecast by day
-  const dailyForecasts = {};
-
-  list.forEach((item) => {
-    const date = new Date(item.dt * 1000);
-    const day = date.toISOString().split("T")[0];
-
-    if (!dailyForecasts[day]) {
-      dailyForecasts[day] = [];
-    }
-
-    dailyForecasts[day].push(item);
-  });
-
-  // Process each day
-  Object.keys(dailyForecasts).forEach((day) => {
-    const items = dailyForecasts[day];
-    const dayData = items[Math.floor(items.length / 2)]; // Get middle of day
-
-    // Calculate average values for the day
-    const avgTemp =
-      items.reduce((sum, item) => sum + item.main.temp, 0) / items.length;
-    const avgHumidity =
-      items.reduce((sum, item) => sum + item.main.humidity, 0) / items.length;
-    const maxPop = Math.max(...items.map((item) => item.pop || 0));
-
-    // Calculate blight risk based on conditions
-    let blightRisk = "Low";
-    let riskFactors = [];
-
-    // Late blight favors cool, wet conditions
-    if (avgTemp < 20 && avgHumidity > 75 && maxPop > 0.5) {
-      blightRisk = "High";
-      riskFactors.push("Cool, humid and rainy conditions");
-    }
-    // Early blight favors warm, humid conditions
-    else if (avgTemp > 24 && avgHumidity > 70) {
-      blightRisk = "Medium";
-      riskFactors.push("Warm and humid conditions");
-    }
-    // Add other risk factors
-    if (avgHumidity > 85) {
-      blightRisk = "High";
-      riskFactors.push("Very high humidity");
-    }
-
-    forecast.push({
-      date: day,
-      weather: dayData.weather[0].main,
-      description: dayData.weather[0].description,
-      icon: dayData.weather[0].icon,
-      temperature: `${avgTemp.toFixed(1)}°C`,
-      humidity: `${avgHumidity.toFixed(0)}%`,
-      precipitation: `${(maxPop * 100).toFixed(0)}%`,
-      blightRisk,
-      riskFactors
-    });
-  });
-
-  return forecast;
-};
 
 module.exports = {
   refreshEnvironmentalData,

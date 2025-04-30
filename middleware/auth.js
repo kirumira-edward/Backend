@@ -135,57 +135,31 @@ const refreshAndContinue = async (refreshToken, req, res, next) => {
 /**
  * Refresh user tokens with security measures
  */
+
 const refreshUserTokens = async (refreshToken) => {
   try {
-    // Verify refresh token
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-
-    // Get farmer from database - first check with the token
-    let farmer = await Farmer.findOne({
-      _id: decoded.id,
-      refreshToken: refreshToken
-    });
-
-    // If not found with exact match, try just by ID as fallback
-    // This helps with token rotation or database inconsistency issues
+    
+    // Only check by ID (but do verify the JWT signature)
+    const farmer = await Farmer.findById(decoded.id);
+    
     if (!farmer) {
-      farmer = await Farmer.findById(decoded.id);
-
-      // Log that we had to use the fallback approach
-      console.log(
-        `Refresh token not matched for user ${decoded.id}, proceeding with ID only`
-      );
-
-      // Update the refreshToken in the database to avoid future mismatches
-      if (farmer) {
-        farmer.refreshToken = undefined; // Clear any old token
-      }
+      throw new Error("User not found");
     }
 
-    if (!farmer) {
-      throw new Error("Invalid refresh token or user not found");
-    }
-
-    // Generate new tokens with token rotation for security
+    // Generate new tokens
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(
       farmer,
       farmer.rememberMe
     );
 
-    // Store the new refresh token and invalidate the old one
+    // Always update the stored refresh token
     farmer.refreshToken = newRefreshToken;
     await farmer.save();
 
     return { accessToken, refreshToken: newRefreshToken, farmer };
   } catch (error) {
-    // Add more detailed error logging
-    if (error.name === "TokenExpiredError") {
-      console.log("Refresh token has expired");
-    } else if (error.name === "JsonWebTokenError") {
-      console.log("Invalid refresh token format");
-    }
-
-    throw error; // Re-throw the error to be handled by the caller
+    throw error;
   }
 };
 
