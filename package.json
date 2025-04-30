@@ -5,7 +5,8 @@
   "scripts": {
     "test": "jest --setupFiles ./tests/setup.js",
     "start": "node server.js",
-    "generate-vapid": "node scripts/generate-vapid-keys.js"
+    "generate-vapid": "node scripts/generate-vapid-keys.js",
+    "seed:regional": "node scripts/seedRegionalFarmers.js"
   },
   "keywords": [],
   "author": "",
