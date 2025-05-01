@@ -17,13 +17,13 @@ try {
 const { sendVerificationEmail } = require("./utils/emailService");
 const { uploadProfileImage } = require("./utils/cloudinaryService");
 const { startSchedulers } = require("./utils/dataScheduler");
-const { initializeFirebaseAdmin } = require("./utils/firebaseAdmin");
 const environmentalDataRoutes = require("./routes/environmentalDataRoutes");
 const diagnosisRoutes = require("./routes/diagnosisRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const userRoutes = require("./routes/userRoutes");
 const mapRoutes = require("./routes/mapRoutes");
 const authRoutes = require("./routes/authRoutes");
+const { initializeFirebaseAdmin } = require("./utils/firebaseInit");
 // Import analytics routes properly
 const analyticsRoutes = require("./routes/analyticsRoutes");
 // Import user controller functions
@@ -43,10 +43,11 @@ app.use(
   cors({
     origin: [
       "http://localhost:8080",
-      "https://tomato-expert-frontend.onrender.com"
+      "http://192.168.1.170:8080",
+      "https://tomato-expert-frontend.onrender.com/"
     ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   })
 );
 app.use(express.json({ limit: "10mb" }));

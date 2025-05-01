@@ -1,50 +1,70 @@
-const admin = require("firebase-admin");
-const dotenv = require("dotenv");
+const admin = require('firebase-admin');
+const path = require('path');
+const fs = require('fs');
 
-dotenv.config();
+let firebaseInitialized = false;
+let firebaseApp = null;
 
-// Parse Firebase private key correctly (needed because .env might escape newlines)
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
-  : undefined;
-
-// Initialize Firebase Admin SDK
-const initializeFirebaseAdmin = () => {
-  if (admin.apps.length === 0) {
-    try {
-      // Check if Firebase credentials are configured
-      if (!process.env.FIREBASE_PROJECT_ID) {
-        console.warn(
-          "Firebase credentials not configured. Push notifications will not work."
-        );
-        return null;
-      }
-
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          type: process.env.FIREBASE_TYPE,
-          project_id: process.env.FIREBASE_PROJECT_ID,
-          private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-          private_key: privateKey,
-          client_email: process.env.FIREBASE_CLIENT_EMAIL,
-          client_id: process.env.FIREBASE_CLIENT_ID,
-          auth_uri: process.env.FIREBASE_AUTH_URI,
-          token_uri: process.env.FIREBASE_TOKEN_URI,
-          auth_provider_x509_cert_url:
-            process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-          client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL
-        })
+try {
+  // Check if we have environment variables for Firebase
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    // For production: using base64 encoded service account from environment variable
+    const serviceAccountJson = Buffer.from(
+      process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 
+      'base64'
+    ).toString('utf8');
+    
+    const serviceAccount = JSON.parse(serviceAccountJson);
+    
+    firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: serviceAccount.project_id
+    });
+    
+    firebaseInitialized = true;
+    console.log('Firebase Admin SDK initialized with environment variables');
+    console.log('Using project ID:', serviceAccount.project_id);
+  } 
+  else {
+    // For development: using service account file
+    const serviceAccountPath = path.join(
+      __dirname, 
+      '../config/serviceAccountKey.json'
+    );
+    
+    // Check if the file exists
+    if (fs.existsSync(serviceAccountPath)) {
+      const serviceAccount = require(serviceAccountPath);
+      
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id
       });
-      console.log("Firebase Admin SDK initialized successfully");
-    } catch (error) {
-      console.error("Error initializing Firebase Admin SDK:", error);
-      return null;
+      
+      firebaseInitialized = true;
+      console.log('Firebase Admin SDK initialized with service account file');
+      console.log('Using project ID:', serviceAccount.project_id);
+    } else {
+      console.error('Firebase service account file not found at:', serviceAccountPath);
     }
   }
-  return admin;
-};
+  
+  // Test FCM initialization
+  if (firebaseInitialized) {
+    const messaging = admin.messaging();
+    console.log('Firebase Cloud Messaging initialized successfully');
+  }
+  
+} catch (error) {
+  console.error('Error initializing Firebase Admin SDK:', error.message);
+  if (error.code) {
+    console.error('Error code:', error.code);
+    console.error('Error details:', error);
+  }
+}
 
-module.exports = {
-  admin: initializeFirebaseAdmin(),
-  initializeFirebaseAdmin
+module.exports = { 
+  admin: firebaseInitialized ? admin : null,
+  messaging: firebaseInitialized ? admin.messaging() : null,
+  isFirebaseInitialized: firebaseInitialized
 };

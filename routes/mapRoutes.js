@@ -172,4 +172,112 @@ router.get("/farm-locations", authenticateToken, async (req, res) => {
   }
 });
 
+// Add a public endpoint for farm locations that doesn't require authentication
+router.get("/public-farm-locations", async (req, res) => {
+  try {
+    const { limit = 100 } = req.query;
+
+    // Find all verified farmers with location data (exclude sensitive information)
+    const farmers = await Farmer.find({
+      isVerified: true,
+      "defaultLocation.latitude": { $exists: true },
+      "defaultLocation.longitude": { $exists: true }
+    })
+      .select("_id firstName lastName defaultLocation district farmName")
+      .limit(parseInt(limit))
+      .lean();
+
+    // Extract farmer IDs
+    const farmerIds = farmers.map((farmer) => farmer._id);
+
+    // Find the latest environmental data for each farmer
+    const latestDataByFarmer = await EnvironmentalData.aggregate([
+      {
+        $match: {
+          farmerId: { $in: farmerIds }
+        }
+      },
+      {
+        $sort: { date: -1 }
+      },
+      {
+        $group: {
+          _id: "$farmerId",
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      {
+        $replaceRoot: { newRoot: "$doc" }
+      },
+      {
+        $project: {
+          _id: 1,
+          farmerId: 1,
+          temperature: 1,
+          humidity: 1,
+          rainfall: 1,
+          soilMoisture: 1,
+          cri: 1,
+          riskLevel: 1,
+          blightType: 1
+        }
+      }
+    ]);
+
+    // Create a map of farmerId to its latest environmental data
+    const farmerDataMap = {};
+    latestDataByFarmer.forEach((data) => {
+      farmerDataMap[data.farmerId.toString()] = {
+        temperature: data.temperature,
+        humidity: data.humidity,
+        rainfall: data.rainfall,
+        soilMoisture: data.soilMoisture || 0,
+        cri: data.cri,
+        riskLevel: data.riskLevel,
+        blightType: data.blightType || "Unknown"
+      };
+    });
+
+    // Create location objects with farmer and environmental data
+    const locations = farmers.map((farmer) => {
+      const farmerId = farmer._id.toString();
+      const environmentalData = farmerDataMap[farmerId] || {
+        temperature: 25,
+        humidity: 60,
+        rainfall: 0,
+        soilMoisture: 40,
+        cri: 50,
+        riskLevel: "Low",
+        blightType: "Healthy"
+      };
+
+      return {
+        id: farmerId,
+        farmer: {
+          firstName: farmer.firstName,
+          lastName: farmer.lastName
+        },
+        location: {
+          latitude: farmer.defaultLocation.latitude,
+          longitude: farmer.defaultLocation.longitude,
+          district: farmer.district || "Unknown",
+          name: farmer.farmName || farmer.district || "Farm"
+        },
+        environmentalData: environmentalData
+      };
+    });
+
+    res.status(200).json({
+      locations,
+      totalCount: locations.length
+    });
+  } catch (error) {
+    console.error("Error fetching public farm locations:", error);
+    res.status(500).json({
+      message: "Failed to fetch farm locations",
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
