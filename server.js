@@ -41,8 +41,12 @@ const PORT = process.env.PORT || 5000;
 // Middleware setup
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:8080",
-    credentials: true
+    origin: [
+      "http://localhost:8080",
+      "https://tomato-expert-frontend.onrender.com"
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
 app.use(express.json({ limit: "10mb" }));

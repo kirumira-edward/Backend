@@ -42,12 +42,12 @@ exports.login = async (req, res) => {
     await farmer.save();
 
     // Set refresh token as HTTP-only cookie
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000, // 7 days or 30 days
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict"
-    });
+  res.cookie("refreshToken", token, {
+    httpOnly: true,
+    secure: true, // Required for HTTPS
+    sameSite: "none", // Required for cross-domain cookies
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
+  });
 
     res.json({
       accessToken,
