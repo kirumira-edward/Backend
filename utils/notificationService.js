@@ -1,8 +1,8 @@
 const Notification = require("../models/Notification");
 const Farmer = require("../models/Farmer");
 const { sendEmail } = require("./emailService");
-const { admin } = require("./firebaseAdmin");
 const dotenv = require("dotenv");
+const { admin, messaging, isFirebaseInitialized } = require("./firebaseInit");
 
 dotenv.config();
 
@@ -106,67 +106,108 @@ const checkNotificationSettings = (farmer, type) => {
  * @param {Object} notification - Notification document
  * @returns {Promise<void>}
  */
+
 const sendPushNotification = async (notification) => {
   try {
     // Skip if no device tokens or Firebase not initialized
-    if (
-      !notification.deviceTokens ||
-      notification.deviceTokens.length === 0 ||
-      !admin
-    ) {
-      console.log("No device tokens or Firebase not initialized");
+    if (!notification.deviceTokens || notification.deviceTokens.length === 0) {
+      console.log("No device tokens for push notification");
       return;
     }
 
-    // Create the message
-    const message = {
-      notification: {
-        title: notification.title,
-        body: notification.message
-      },
-      data: {
-        notificationId: notification._id.toString(),
-        type: notification.type,
-        priority: notification.priority,
-        ...notification.data // Add any additional data
-      },
-      tokens: notification.deviceTokens
-    };
-
-    // Send the message
-    const response = await admin.messaging().sendMulticast(message);
+    // Check if Firebase is properly initialized
+    if (!isFirebaseInitialized || !messaging) {
+      console.error(
+        "Firebase not properly initialized - skipping push notification"
+      );
+      console.error(
+        "Make sure the FCM API is enabled in your Firebase project"
+      );
+      return;
+    }
 
     console.log(
-      `Successfully sent Firebase push notifications: ${response.successCount}/${notification.deviceTokens.length}`
+      `Sending push notification to ${notification.deviceTokens.length} devices`
     );
 
-    // If any tokens failed, log them and remove from the user's devices
-    if (response.failureCount > 0) {
-      const failedTokens = [];
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          failedTokens.push(notification.deviceTokens[idx]);
-        }
-      });
+    // Create a simpler message format for testing
+      const message = {
+        notification: {
+          title: notification.title,
+          body: notification.message
+        },
+        // Avoid using data field initially for testing
+        tokens: notification.deviceTokens.slice(0, 500)
+      };
 
-      // Log failed tokens
-      console.log(
-        "Firebase push notification failed for tokens:",
-        failedTokens
+    try {
+      // Use messaging directly from your firebaseInit.js export
+       const fcmResponse = await Promise.race([
+         messaging.sendMulticast(message),
+         new Promise((_, reject) =>
+           setTimeout(() => reject(new Error("FCM request timed out")), 10000)
+         )
+       ]);
+
+       console.log(
+         `Successfully sent: ${fcmResponse.successCount}/${notification.deviceTokens.length}`
+       );
+
+      // Handle failed tokens
+      if (response.failureCount > 0) {
+        const failedTokens = [];
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            console.error(
+              `Error sending to token at index ${idx}:`,
+              resp.error
+            );
+            failedTokens.push(notification.deviceTokens[idx]);
+          }
+        });
+
+        // Remove failed tokens if any
+        if (failedTokens.length > 0) {
+          await removeFailedTokens(notification.farmerId, failedTokens);
+        }
+      }
+    } catch (fcmError) {
+      console.error(
+        "Firebase messaging error:",
+        fcmError.code || "unknown-error",
+        fcmError.message
       );
 
-      // Remove failed tokens from the user
-      if (failedTokens.length > 0) {
-        await Farmer.findByIdAndUpdate(notification.farmerId, {
-          $pull: { deviceTokens: { $in: failedTokens } }
-        });
+      if (fcmError.message && fcmError.message.includes("404")) {
+        console.error(
+          "FCM endpoint returned 404 - check Firebase project configuration and permissions"
+        );
+        console.error("Common causes:");
+        console.error(
+          "1. Firebase Cloud Messaging API not enabled in Google Cloud Console"
+        );
+        console.error(
+          "2. Service account doesn't have Firebase Admin SDK Admin role"
+        );
+        console.error("3. Project may be in a frozen state or billing issues");
       }
     }
   } catch (error) {
-    console.error("Error sending push notification:", error);
-    // Don't throw here to prevent breaking the whole notification process
+    console.error("Error in sendPushNotification:", error);
   }
 };
+
+// Helper to remove failed tokens
+async function removeFailedTokens(farmerId, failedTokens) {
+  try {
+    await Farmer.findByIdAndUpdate(farmerId, {
+      $pull: { deviceTokens: { $in: failedTokens } }
+    });
+    console.log(`Removed ${failedTokens.length} failed tokens from farmer ${farmerId}`);
+  } catch (error) {
+    console.error("Error removing failed tokens:", error);
+  }
+}
 
 /**
  * Send email notification
