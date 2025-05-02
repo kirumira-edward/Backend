@@ -44,10 +44,10 @@ app.use(
     origin: [
       "http://localhost:8080",
       "http://192.168.1.170:8080",
-      "https://tomato-expert-frontend.onrender.com/"
+      "https://tomato-expert-frontend.onrender.com"
     ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
 app.use(express.json({ limit: "10mb" }));
