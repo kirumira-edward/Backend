@@ -25,6 +25,7 @@ const getVapidKey = (req, res) => {
   try {
     // Return Firebase configuration for web
     res.status(200).json({
+      publicKey: process.env.VAPID_PUBLIC_KEY,
       firebaseConfig: {
         apiKey: process.env.FIREBASE_API_KEY,
         authDomain: process.env.FIREBASE_AUTH_DOMAIN,
