@@ -10,7 +10,6 @@ try {
 const {
   sendNotification,
   markNotificationAsRead,
-  getFarmerNotifications,
   registerDeviceToken
 } = require("../utils/notificationService");
 const { sendFarmingTip } = require("../utils/notificationTriggers");
@@ -54,20 +53,29 @@ const getUserNotifications = async (req, res) => {
   try {
     const { read, type, limit = 20, skip = 0 } = req.query;
 
-    const filters = {};
+    // Defensive: parse limit/skip as integers
+    const parsedLimit = parseInt(limit, 10) || 20;
+    const parsedSkip = parseInt(skip, 10) || 0;
+
+    // Defensive: build filters safely
+    const filters = { farmerId: req.user.id };
     if (read !== undefined) {
-      filters.read = read === "true";
+      if (read === "true" || read === true) filters.read = true;
+      else if (read === "false" || read === false) filters.read = false;
     }
     if (type) {
       filters.type = type;
     }
 
-    const notifications = await getFarmerNotifications(
-      req.user.id,
-      filters,
-      parseInt(limit),
-      parseInt(skip)
-    );
+    // Only fetch notifications that have not expired
+    filters.expiresAt = { $gt: new Date() };
+
+    // Fetch notifications
+    const notifications = await Notification.find(filters)
+      .sort({ createdAt: -1 })
+      .limit(parsedLimit)
+      .skip(parsedSkip)
+      .lean();
 
     // Get unread count
     const unreadCount = await Notification.countDocuments({
@@ -81,15 +89,18 @@ const getUserNotifications = async (req, res) => {
       unreadCount,
       metadata: {
         total: notifications.length,
-        limit: parseInt(limit),
-        skip: parseInt(skip)
+        limit: parsedLimit,
+        skip: parsedSkip
       }
     });
   } catch (error) {
+    // Improved error logging for debugging
     console.error("Error fetching notifications:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to fetch notifications", error: error.message });
+    res.status(500).json({
+      message: "Failed to fetch notifications",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined
+    });
   }
 };
 

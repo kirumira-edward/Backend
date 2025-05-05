@@ -1,21 +1,93 @@
 const Notification = require("../models/Notification");
 const Farmer = require("../models/Farmer");
-const { sendEmail } = require("./emailService");
-const dotenv = require("dotenv");
-const { admin, messaging, isFirebaseInitialized } = require("./firebaseInit");
+const EnvironmentalData = require("../models/EnvironmentalData");
 
-dotenv.config();
+// Import Firebase Admin messaging instance
+const { messaging } = require("./firebaseInit");
 
 /**
- * Send a notification to a specific farmer
- * @param {string} farmerId - ID of the farmer to notify
+ * Send push notifications using Firebase Cloud Messaging
+ * @param {Array<string>} deviceTokens - Array of FCM device tokens
+ * @param {string} title - Notification title
+ * @param {string} message - Notification message
+ * @param {string} type - Notification type
+ * @param {Object} data - Additional data to include with notification
+ * @returns {Promise<void>}
+ */
+async function sendPushNotifications(deviceTokens, title, message, type, data) {
+  if (!messaging) {
+    console.error(
+      "[sendPushNotifications] Firebase messaging is not initialized."
+    );
+    return;
+  }
+  if (!Array.isArray(deviceTokens) || deviceTokens.length === 0) {
+    console.warn("[sendPushNotifications] No device tokens provided.");
+    return;
+  }
+
+  // Prepare the payload
+  const payload = {
+    notification: {
+      title: title,
+      body: message
+    },
+    data: {
+      type: type || "system",
+      ...Object.fromEntries(
+        Object.entries(data || {}).map(([k, v]) => [
+          k,
+          v == null ? "" : String(v)
+        ])
+      )
+    }
+  };
+
+  // Send to each token individually for better error handling
+  for (const token of deviceTokens) {
+    try {
+      const response = await messaging.send({
+        token,
+        ...payload,
+        android: {
+          priority: "high"
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+              contentAvailable: true
+            }
+          }
+        }
+      });
+      console.log(
+        `[sendPushNotifications] Sent to ${token.substring(0, 10)}...:`,
+        response
+      );
+    } catch (err) {
+      console.error(
+        `[sendPushNotifications] Error sending to ${token.substring(
+          0,
+          10
+        )}...:`,
+        err.message
+      );
+      // Optionally: Remove invalid tokens from DB here
+    }
+  }
+}
+
+/**
+ * Send notification to a specific farmer
+ *
+ * @param {string} farmerId - ID of farmer to notify
  * @param {string} title - Notification title
  * @param {string} message - Notification message
  * @param {string} type - Notification type (weather, blight, tip, diagnosis, system)
  * @param {string} priority - Notification priority (low, medium, high, urgent)
- * @param {Object} data - Additional data related to the notification
- * @param {Array} deviceTokens - Device tokens to send push to (optional)
- * @returns {Promise<Object>} Created notification
+ * @param {Object} data - Additional data to include with notification
+ * @returns {Promise<Object>} - The created notification
  */
 const sendNotification = async (
   farmerId,
@@ -23,50 +95,43 @@ const sendNotification = async (
   message,
   type = "system",
   priority = "medium",
-  data = {},
-  deviceTokens = []
+  data = {}
 ) => {
   try {
-    // Find the farmer to check notification settings
-    const farmer = await Farmer.findById(farmerId);
-    if (!farmer) {
-      throw new Error(`Farmer with ID ${farmerId} not found`);
-    }
-
-    // Check if this type of notification is enabled
-    const shouldSend = checkNotificationSettings(farmer, type);
-    if (!shouldSend) {
-      return null; // Skip if this notification type is disabled
-    }
-
-    // Create the notification
+    // First, create a notification in our database
     const notification = new Notification({
       farmerId,
       title,
       message,
       type,
       priority,
-      data,
-      deviceTokens:
-        deviceTokens.length > 0 ? deviceTokens : farmer.deviceTokens || []
+      data
     });
 
     await notification.save();
 
-    // Send push notification if enabled and we have device tokens
-    if (
-      farmer.notificationSettings?.enablePush &&
-      notification.deviceTokens.length > 0
-    ) {
-      await sendPushNotification(notification);
+    // Get the farmer to check their notification settings and device tokens
+    const farmer = await Farmer.findById(farmerId);
+    if (!farmer) {
+      console.warn(
+        `Attempted to send notification to non-existent farmer: ${farmerId}`
+      );
+      return notification;
     }
 
-    // Send email notification if enabled for high priority notifications
-    if (
-      farmer.notificationSettings?.enableEmail &&
-      ["high", "urgent"].includes(priority)
-    ) {
-      await sendEmailNotification(farmer, notification);
+    // Check if they want this type of notification
+    const settings = farmer.notificationSettings || {};
+    const shouldSendPush = settings.enablePush !== false;
+
+    if (!shouldSendPush) {
+      console.log(`Push notifications disabled for farmer: ${farmerId}`);
+      return notification;
+    }
+
+    // Send push notification if they have device tokens
+    const deviceTokens = farmer.deviceTokens || [];
+    if (deviceTokens.length > 0 && shouldSendPush) {
+      await sendPushNotifications(deviceTokens, title, message, type, data);
     }
 
     return notification;
@@ -77,264 +142,284 @@ const sendNotification = async (
 };
 
 /**
- * Check if a notification type is enabled in user settings
- * @param {Object} farmer - Farmer document
- * @param {string} type - Notification type
- * @returns {boolean} Whether this notification type is enabled
+ * Trigger blight risk notification based on environmental data
+ * @param {Object} environmentalData - Environmental data record
+ * @returns {Promise<void>}
  */
-const checkNotificationSettings = (farmer, type) => {
-  if (!farmer.notificationSettings) return true; // Default to enabled if settings don't exist
+const triggerBlightRiskNotification = async (environmentalData) => {
+  try {
+    if (!environmentalData.farmerId) return; // Skip if no farmer is associated
 
-  switch (type) {
-    case "weather":
-      return farmer.notificationSettings.weatherAlerts !== false;
-    case "blight":
-      return farmer.notificationSettings.blightRiskAlerts !== false;
-    case "tip":
-      return farmer.notificationSettings.farmingTips !== false;
-    case "diagnosis":
-      return farmer.notificationSettings.diagnosisResults !== false;
-    case "system":
-      return true; // System notifications are always enabled
-    default:
-      return true;
+    const riskLevel = environmentalData.riskLevel;
+    const blightType = environmentalData.blightType;
+
+    // Only send notifications for Medium, High, or Critical risk levels
+    if (!["Medium", "High", "Critical"].includes(riskLevel)) return;
+
+    // Determine notification priority based on risk level
+    let priority = "medium";
+    if (riskLevel === "High") priority = "high";
+    if (riskLevel === "Critical") priority = "urgent";
+
+    // Create notification message based on blight type
+    let title = `${riskLevel} Risk of ${blightType} Detected`;
+    let message = "";
+
+    // Add a call-to-action for diagnostic confirmation
+    const diagnosticCTA =
+      "Take a photo of your plants now to confirm this assessment and get personalized recommendations.";
+
+    if (blightType === "Early Blight") {
+      message = `We've detected a ${riskLevel.toLowerCase()} risk of Early Blight in your area. Current CRI: ${environmentalData.cri.toFixed(
+        1
+      )}. `;
+
+      // Add recommendations based on risk level
+      if (riskLevel === "Medium") {
+        message +=
+          "Consider monitoring your plants closely and applying preventive fungicides. " +
+          diagnosticCTA;
+      } else if (riskLevel === "High") {
+        message +=
+          "Immediate action recommended: Apply approved fungicides and inspect plants daily. " +
+          diagnosticCTA;
+      } else if (riskLevel === "Critical") {
+        message +=
+          "URGENT: Apply fungicides immediately and consider removing severely affected plants to prevent spread. " +
+          diagnosticCTA;
+      }
+    } else if (blightType === "Late Blight") {
+      message = `We've detected a ${riskLevel.toLowerCase()} risk of Late Blight in your area. Current CRI: ${environmentalData.cri.toFixed(
+        1
+      )}. `;
+
+      // Add recommendations based on risk level
+      if (riskLevel === "Medium") {
+        message +=
+          "Begin preventive measures such as applying copper-based fungicides and avoiding overhead irrigation. " +
+          diagnosticCTA;
+      } else if (riskLevel === "High") {
+        message +=
+          "Apply protective fungicides immediately and reduce humidity around plants when possible. " +
+          diagnosticCTA;
+      } else if (riskLevel === "Critical") {
+        message +=
+          "URGENT: Apply fungicides immediately, remove affected plants, and consider protective measures for remaining crops. " +
+          diagnosticCTA;
+      }
+    }
+
+    // Send the notification with action data for deep linking
+    await sendNotification(
+      environmentalData.farmerId,
+      title,
+      message,
+      "blight",
+      priority,
+      {
+        cri: environmentalData.cri,
+        riskLevel: riskLevel,
+        blightType: blightType,
+        date: environmentalData.date,
+        action: "diagnose",
+        url: "/diagnosis"
+      }
+    );
+  } catch (error) {
+    console.error("Error triggering blight risk notification:", error);
+    // Log but don't throw to prevent breaking the data flow
   }
 };
 
 /**
- * Send push notification using Firebase Cloud Messaging
- * @param {Object} notification - Notification document
+ * Trigger weather change notification based on percentage changes
+ * @param {Object} environmentalData - Environmental data record
  * @returns {Promise<void>}
  */
-
-const sendPushNotification = async (notification) => {
+const triggerWeatherChangeNotification = async (environmentalData) => {
   try {
-    // Skip if no device tokens or Firebase not initialized
-    if (!notification.deviceTokens || notification.deviceTokens.length === 0) {
-      console.log("No device tokens for push notification");
-      return;
+    if (!environmentalData.farmerId) return; // Skip if no farmer is associated
+
+    const changes = environmentalData.percentageChanges?.daily;
+    if (!changes) return; // Skip if no percentage changes data
+
+    const significantChanges = [];
+
+    // Check for significant changes (threshold values can be adjusted)
+    if (changes.temperature && Math.abs(changes.temperature) >= 15) {
+      significantChanges.push(
+        `Temperature ${
+          changes.temperature > 0 ? "increased" : "decreased"
+        } by ${Math.abs(changes.temperature).toFixed(1)}%`
+      );
     }
 
-    // Check if Firebase is properly initialized
-    if (!isFirebaseInitialized || !messaging) {
-      console.error(
-        "Firebase not properly initialized - skipping push notification"
+    if (changes.humidity && Math.abs(changes.humidity) >= 20) {
+      significantChanges.push(
+        `Humidity ${
+          changes.humidity > 0 ? "increased" : "decreased"
+        } by ${Math.abs(changes.humidity).toFixed(1)}%`
       );
-      console.error(
-        "Make sure the FCM API is enabled in your Firebase project"
-      );
-      return;
     }
 
-    console.log(
-      `Sending push notification to ${notification.deviceTokens.length} devices`
-    );
+    if (changes.rainfall && changes.rainfall > 100) {
+      significantChanges.push(
+        `Rainfall increased by ${changes.rainfall.toFixed(1)}%`
+      );
+    }
 
-    // Create a simpler message format for testing
-      const message = {
-        notification: {
-          title: notification.title,
-          body: notification.message
-        },
-        // Avoid using data field initially for testing
-        tokens: notification.deviceTokens.slice(0, 500)
-      };
+    if (changes.soilMoisture && Math.abs(changes.soilMoisture) >= 25) {
+      significantChanges.push(
+        `Soil moisture ${
+          changes.soilMoisture > 0 ? "increased" : "decreased"
+        } by ${Math.abs(changes.soilMoisture).toFixed(1)}%`
+      );
+    }
 
-    try {
-      // Use messaging directly from your firebaseInit.js export
-       const fcmResponse = await Promise.race([
-         messaging.sendMulticast(message),
-         new Promise((_, reject) =>
-           setTimeout(() => reject(new Error("FCM request timed out")), 10000)
-         )
-       ]);
+    // If we have significant changes, send a notification
+    if (significantChanges.length > 0) {
+      const title = "Significant Weather Changes Detected";
+      const message = `The following significant weather changes have been detected in your area: ${significantChanges.join(
+        "; "
+      )}. These changes may affect your crops.`;
 
-       console.log(
-         `Successfully sent: ${fcmResponse.successCount}/${notification.deviceTokens.length}`
-       );
-
-      // Handle failed tokens
-      if (response.failureCount > 0) {
-        const failedTokens = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            console.error(
-              `Error sending to token at index ${idx}:`,
-              resp.error
-            );
-            failedTokens.push(notification.deviceTokens[idx]);
-          }
-        });
-
-        // Remove failed tokens if any
-        if (failedTokens.length > 0) {
-          await removeFailedTokens(notification.farmerId, failedTokens);
+      await sendNotification(
+        environmentalData.farmerId,
+        title,
+        message,
+        "weather",
+        "medium",
+        {
+          changes: changes,
+          date: environmentalData.date
         }
-      }
-    } catch (fcmError) {
-      console.error(
-        "Firebase messaging error:",
-        fcmError.code || "unknown-error",
-        fcmError.message
       );
-
-      if (fcmError.message && fcmError.message.includes("404")) {
-        console.error(
-          "FCM endpoint returned 404 - check Firebase project configuration and permissions"
-        );
-        console.error("Common causes:");
-        console.error(
-          "1. Firebase Cloud Messaging API not enabled in Google Cloud Console"
-        );
-        console.error(
-          "2. Service account doesn't have Firebase Admin SDK Admin role"
-        );
-        console.error("3. Project may be in a frozen state or billing issues");
-      }
     }
   } catch (error) {
-    console.error("Error in sendPushNotification:", error);
+    console.error("Error triggering weather change notification:", error);
+    // Log but don't throw to prevent breaking the data flow
   }
 };
 
-// Helper to remove failed tokens
-async function removeFailedTokens(farmerId, failedTokens) {
-  try {
-    await Farmer.findByIdAndUpdate(farmerId, {
-      $pull: { deviceTokens: { $in: failedTokens } }
-    });
-    console.log(`Removed ${failedTokens.length} failed tokens from farmer ${farmerId}`);
-  } catch (error) {
-    console.error("Error removing failed tokens:", error);
-  }
-}
-
 /**
- * Send email notification
- * @param {Object} farmer - Farmer document
- * @param {Object} notification - Notification document
+ * Send a farming tip notification
+ * @param {string} farmerId - Farmer ID
  * @returns {Promise<void>}
  */
-const sendEmailNotification = async (farmer, notification) => {
+const sendFarmingTip = async (farmerId) => {
   try {
-    // Send the email
-    await sendEmail(
-      farmer.email,
-      farmer.firstName,
-      notification.title,
-      notification.message
-    );
-  } catch (error) {
-    console.error("Error sending email notification:", error);
-    // Don't throw here to prevent breaking the whole notification process
-  }
-};
+    // Array of farming tips to rotate
+    const farmingTips = [
+      {
+        title: "Crop Rotation Tip",
+        message:
+          "Don't plant tomatoes in the same spot year after year. Rotate with unrelated crops to prevent disease buildup in the soil."
+      },
+      {
+        title: "Proper Watering Technique",
+        message:
+          "Water tomato plants at the base rather than from overhead to keep foliage dry and reduce disease risk."
+      },
+      {
+        title: "Pruning for Health",
+        message:
+          "Remove lower leaves that touch the ground to prevent soil-borne diseases from splashing onto plants."
+      },
+      {
+        title: "Companion Planting",
+        message:
+          "Consider planting basil near your tomatoes - it can repel certain pests and may improve tomato flavor."
+      },
+      {
+        title: "Mulching Benefits",
+        message:
+          "Apply organic mulch around tomato plants to conserve moisture, suppress weeds, and prevent soil-borne diseases."
+      },
+      {
+        title: "Spacing Matters",
+        message:
+          "Ensure proper spacing between tomato plants to improve air circulation and reduce disease pressure."
+      },
+      {
+        title: "Early Harvesting",
+        message:
+          "During blight-prone periods, consider harvesting tomatoes when they first show color and letting them ripen indoors."
+      },
+      {
+        title: "Natural Fungicides",
+        message:
+          "A diluted milk spray (1 part milk to 9 parts water) applied weekly can help prevent early blight and powdery mildew."
+      }
+    ];
 
-/**
- * Mark notification as read
- * @param {string} notificationId - ID of the notification to mark as read
- * @param {string} farmerId - ID of the farmer who owns the notification
- * @returns {Promise<Object>} Updated notification
- */
-const markNotificationAsRead = async (notificationId, farmerId) => {
-  try {
-    const notification = await Notification.findOneAndUpdate(
-      { _id: notificationId, farmerId: farmerId },
-      { read: true },
-      { new: true }
-    );
+    // Pick a random tip
+    const randomTip =
+      farmingTips[Math.floor(Math.random() * farmingTips.length)];
 
-    if (!notification) {
-      throw new Error("Notification not found or not owned by this farmer");
-    }
-
-    return notification;
-  } catch (error) {
-    console.error("Error marking notification as read:", error);
-    throw error;
-  }
-};
-
-/**
- * Get farmer's notifications
- * @param {string} farmerId - Farmer ID
- * @param {Object} filters - Optional filters (read status, type, etc.)
- * @param {number} limit - Maximum number of notifications to return
- * @param {number} skip - Number of notifications to skip (for pagination)
- * @returns {Promise<Array>} Notifications
- */
-const getFarmerNotifications = async (
-  farmerId,
-  filters = {},
-  limit = 20,
-  skip = 0
-) => {
-  try {
-    const query = {
+    // Send the notification
+    await sendNotification(
       farmerId,
-      expiresAt: { $gt: new Date() }
-    };
-
-    // Add read filter if specified
-    if (filters.read !== undefined) {
-      query.read = filters.read;
-    }
-
-    // Add type filter if specified
-    if (filters.type) {
-      query.type = filters.type;
-    }
-
-    const notifications = await Notification.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(skip);
-
-    return notifications;
+      randomTip.title,
+      randomTip.message,
+      "tip",
+      "low"
+    );
   } catch (error) {
-    console.error("Error getting farmer notifications:", error);
-    throw error;
+    console.error("Error sending farming tip:", error);
   }
 };
 
 /**
- * Register a device token for push notifications
- * @param {string} farmerId - Farmer ID
- * @param {string} deviceToken - Device token to register
- * @returns {Promise<Object>} Updated farmer
+ * Trigger diagnosis result notification
+ * @param {Object} diagnosis - Diagnosis record
+ * @returns {Promise<void>}
  */
-const registerDeviceToken = async (farmerId, deviceToken) => {
+const triggerDiagnosisNotification = async (diagnosis) => {
   try {
-    if (!deviceToken) {
-      throw new Error("Device token is required");
+    if (!diagnosis.farmerId) return;
+
+    // Only send for completed diagnoses
+    if (diagnosis.status !== "completed") return;
+
+    let title = "Plant Diagnosis Results Available";
+    let message = `Your plant diagnosis is complete. `;
+    let priority = "medium";
+
+    if (diagnosis.condition === "Healthy") {
+      message += "Good news! Your plant appears to be healthy.";
+    } else if (["Early Blight", "Late Blight"].includes(diagnosis.condition)) {
+      title = `${diagnosis.condition} Detected in Your Plant`;
+      message += `We've identified ${
+        diagnosis.condition
+      } with ${diagnosis.confidence.toFixed(1)}% confidence. ${
+        diagnosis.recommendation
+      }`;
+      priority = "high";
+    } else {
+      message += `Condition: ${diagnosis.condition}. ${diagnosis.recommendation}`;
     }
 
-    const farmer = await Farmer.findById(farmerId);
-    if (!farmer) {
-      throw new Error(`Farmer with ID ${farmerId} not found`);
-    }
-
-    // Initialize deviceTokens array if it doesn't exist
-    if (!farmer.deviceTokens) {
-      farmer.deviceTokens = [];
-    }
-
-    // Add token if it doesn't already exist
-    if (!farmer.deviceTokens.includes(deviceToken)) {
-      farmer.deviceTokens.push(deviceToken);
-      await farmer.save();
-    }
-
-    return farmer;
+    await sendNotification(
+      diagnosis.farmerId,
+      title,
+      message,
+      "diagnosis",
+      priority,
+      {
+        diagnosisId: diagnosis._id,
+        condition: diagnosis.condition,
+        imageUrl: diagnosis.thumbnailUrl || diagnosis.imageUrl
+      }
+    );
   } catch (error) {
-    console.error("Error registering device token:", error);
-    throw error;
+    console.error("Error triggering diagnosis notification:", error);
   }
 };
 
 module.exports = {
   sendNotification,
-  markNotificationAsRead,
-  getFarmerNotifications,
-  registerDeviceToken
+  triggerBlightRiskNotification,
+  triggerWeatherChangeNotification,
+  sendFarmingTip,
+  triggerDiagnosisNotification
 };

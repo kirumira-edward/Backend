@@ -10,6 +10,7 @@ const { calculateCRI } = require("../utils/dataValidator");
 const {
   triggerDiagnosisNotification
 } = require("../utils/notificationTriggers");
+const { sendDiagnosisEmail } = require("../utils/emailService"); // Add this import
 const axios = require("axios"); // Import axios
 
 /**
@@ -146,8 +147,24 @@ const diagnosePlant = async (req, res) => {
         currentCRI
       );
 
+      console.log("Raw diagnosis result:", JSON.stringify(diagnosisResult));
+
       let farmerMessage = "";
       let adjustedCRI = currentCRI;
+
+      // Extract condition from diagnosisResult with validation to avoid "Unknown" results
+      const condition = diagnosisResult.condition || "Unknown";
+      const confidence = diagnosisResult.confidence || 0;
+
+      // Extract recommendations, handling both string and array formats
+      const recommendation = Array.isArray(diagnosisResult.recommendations)
+        ? diagnosisResult.recommendations.join(" ")
+        : diagnosisResult.recommendation ||
+          "No specific recommendations available.";
+
+      // Extract symptoms data, handling both field name variations
+      const signsAndSymptoms =
+        diagnosisResult.symptoms || diagnosisResult.signs_and_symptoms || "";
 
       // Compare CRI with image diagnosis and adjust CRI
       const criLikelihood =
@@ -156,8 +173,8 @@ const diagnosePlant = async (req, res) => {
           : currentCRI > 50
           ? "Late Blight"
           : "Healthy";
-      const imageDiagnosis = diagnosisResult.condition;
-      const diagnosisConfidence = diagnosisResult.confidence;
+      const imageDiagnosis = condition;
+      const diagnosisConfidence = confidence;
 
       if (imageDiagnosis !== "Unknown") {
         if (
@@ -215,19 +232,56 @@ const diagnosePlant = async (req, res) => {
       }
 
       // Update the pending diagnosis with results
-      pendingDiagnosis.condition = diagnosisResult.condition;
-      pendingDiagnosis.confidence = diagnosisResult.confidence;
-      pendingDiagnosis.recommendation = diagnosisResult.recommendation;
+      pendingDiagnosis.condition = condition;
+      pendingDiagnosis.confidence = confidence;
+      pendingDiagnosis.recommendation = recommendation;
       pendingDiagnosis.cri = currentCRI; // Store the CRI at the time of diagnosis
       pendingDiagnosis.status = "completed";
       pendingDiagnosis.environmentalDataId = lastEnvironmentalData._id;
-      pendingDiagnosis.signsAndSymptoms = diagnosisResult.signs_and_symptoms; // Save signs and symptoms
+      pendingDiagnosis.signsAndSymptoms = signsAndSymptoms;
 
       await pendingDiagnosis.save();
       console.log("Diagnosis saved to database");
 
-      // Send a notification about the diagnosis result
-      await triggerDiagnosisNotification(pendingDiagnosis);
+      try {
+        // Send a notification about the diagnosis result
+        console.log(
+          "Triggering diagnosis notification for condition:",
+          pendingDiagnosis.condition
+        );
+        await triggerDiagnosisNotification(pendingDiagnosis);
+      } catch (notificationError) {
+        console.error(
+          "Error sending diagnosis notification:",
+          notificationError
+        );
+        // Don't fail the entire request if notification fails
+      }
+
+      // --- ADD EMAIL SENDING LOGIC HERE ---
+      try {
+        // Fetch farmer's email and first name
+        const farmer = await require("../models/Farmer")
+          .findById(req.user.id)
+          .lean();
+        if (farmer && farmer.email && farmer.firstName) {
+          await sendDiagnosisEmail(farmer.email, farmer.firstName, {
+            condition: pendingDiagnosis.condition,
+            confidence: pendingDiagnosis.confidence,
+            recommendation: pendingDiagnosis.recommendation,
+            signs_and_symptoms: pendingDiagnosis.signsAndSymptoms
+          });
+          console.log("Diagnosis email sent to:", farmer.email);
+        } else {
+          console.warn(
+            "Farmer email or first name missing, cannot send diagnosis email."
+          );
+        }
+      } catch (emailError) {
+        console.error("Error sending diagnosis email:", emailError);
+        // Don't fail the request if email fails
+      }
+      // --- END EMAIL SENDING LOGIC ---
 
       // Return results to client
       res.status(200).json({
@@ -241,15 +295,16 @@ const diagnosePlant = async (req, res) => {
           imageUrl: pendingDiagnosis.imageUrl,
           thumbnailUrl: pendingDiagnosis.thumbnailUrl,
           createdAt: pendingDiagnosis.createdAt,
-          signsAndSymptoms: pendingDiagnosis.signsAndSymptoms // Return signs and symptoms
-        },
-        environmentalData: {
-          cri: adjustedCRI, // Return the adjusted CRI to the client
-          riskLevel: lastEnvironmentalData.riskLevel,
-          temperature: lastEnvironmentalData.temperature,
-          humidity: lastEnvironmentalData.humidity,
-          rainfall: lastEnvironmentalData.rainfall,
-          soilMoisture: lastEnvironmentalData.soilMoisture
+          coordinates: pendingDiagnosis.coordinates,
+          signsAndSymptoms: pendingDiagnosis.signsAndSymptoms,
+          environmentalData: {
+            cri: adjustedCRI,
+            riskLevel: lastEnvironmentalData.riskLevel,
+            temperature: lastEnvironmentalData.temperature,
+            humidity: lastEnvironmentalData.humidity,
+            rainfall: lastEnvironmentalData.rainfall,
+            soilMoisture: lastEnvironmentalData.soilMoisture
+          }
         }
       });
     } catch (error) {
