@@ -99,21 +99,18 @@ const diagnoseTomatoDisease = async (base64Image, cri) => {
       - **Early Blight:** Look for **dark spots on the leaves**, especially older ones. These spots often have a characteristic **"target pattern" of concentric rings**. There might be **yellowing of the leaf tissue around the spots**. Stem lesions are less common but can occur. Fruit can develop dark, sunken spots near the stem.
       - **Late Blight:** Look for **irregular, water-soaked spots on the leaves** that quickly turn brown or black. In humid conditions, you might see **white, fuzzy mold, particularly on the undersides of the leaves**. Stem lesions are usually firm and brown. Green or ripe fruit can develop large, firm, brown, or black lesions.
 
-      Also, provide a confidence percentage (0-100) for your diagnosis based on how clear the signs are in the image.
-
-      Finally, offer specific recommendations for a farmer in Uganda on how to manage this condition, including best practices, preventive measures, or potential medications relevant to the identified disease.
-
-      Specifically describe the **signs and symptoms you observed in the image** that led to your diagnosis.
-
       Consider the Cumulative Risk Index (CRI) of ${cri}. A CRI below 50 suggests a higher likelihood of Early Blight, while a CRI above 50 suggests a higher likelihood of Late Blight. Use this as additional context.
-
-      Format your response as a JSON object with the following keys:
-      - "condition": The identified disease ("Healthy", "Early Blight", "Late Blight", or "Unknown").
-      - "confidence": The confidence percentage (0-100).
-      - "recommendation": A detailed recommendation for the farmer.
-      - "signs_and_symptoms": A string describing the observed signs and symptoms.
-
-      Your response must be valid JSON only. No other text.
+  
+  Provide:
+  - Brief description of observed symptoms (2-3 sentences maximum)
+  - Confidence percentage (0-100)
+  - 5-7 specific, actionable recommendations for Uganda farmers
+  - Include at least 2 locally relevant resources (links to websites for acquiring more information or assistance) relevant to the identified condition, platforms where they can purchase the required treatment for the conditon. Ensure they are accessible to Ugandan farmers.)
+  
+  Format as JSON with these keys:
+  "condition", "confidence", "symptoms", "recommendations", "resources"
+  
+  Keep responses brief and direct. JSON only, no additional text.
     `;
 
     const payload = {
@@ -138,7 +135,7 @@ const diagnoseTomatoDisease = async (base64Image, cri) => {
     const responseText =
       response.data.candidates[0]?.content?.parts[0]?.text || "";
 
-    const diagnosis = extractJsonFromText(responseText);
+    const diagnosis = extractDiagnosisInfo(responseText);
 
     if (
       diagnosis &&
@@ -205,6 +202,88 @@ const extractJsonFromText = (text) => {
   }
 
   return null;
+};
+
+/**
+ * Extract structured diagnosis information from Gemini response
+ * @param {string} jsonResponse - JSON formatted string from Gemini
+ * @returns {Object} - Parsed diagnosis data
+ */
+const extractDiagnosisInfo = (jsonResponse) => {
+  try {
+    // Try to parse the JSON from the response
+    const matchJson = jsonResponse.match(/```json\s*([\s\S]*?)\s*```/);
+
+    if (!matchJson) {
+      console.error("No JSON found in Gemini response");
+      return {
+        condition: "Unknown",
+        confidence: 0,
+        recommendation: "Could not extract diagnosis information."
+      };
+    }
+
+    const jsonContent = matchJson[1].trim();
+    console.log("Extracted JSON content:", jsonContent);
+
+    const diagnosisData = JSON.parse(jsonContent);
+
+    // Validate the required fields
+    if (!diagnosisData.condition) {
+      console.error("Missing condition in parsed diagnosis data");
+      return {
+        condition: "Unknown",
+        confidence: 0,
+        recommendation: "Could not extract diagnosis information."
+      };
+    }
+
+    // Format the recommendations array if it exists
+    if (
+      Array.isArray(diagnosisData.recommendations) &&
+      diagnosisData.recommendations.length > 0
+    ) {
+      diagnosisData.recommendation = diagnosisData.recommendations.join(" ");
+    }
+
+    // Make sure the condition is one of the accepted values
+    const validConditions = ["Healthy", "Early Blight", "Late Blight"];
+    const normalizedCondition = diagnosisData.condition.trim();
+
+    if (validConditions.includes(normalizedCondition)) {
+      diagnosisData.condition = normalizedCondition;
+    } else {
+      console.warn(
+        `Invalid condition "${diagnosisData.condition}" detected, setting to Unknown`
+      );
+      diagnosisData.condition = "Unknown";
+    }
+
+    // Ensure confidence is a number
+    if (typeof diagnosisData.confidence !== "number") {
+      diagnosisData.confidence = parseInt(diagnosisData.confidence) || 0;
+    }
+
+    // Rename symptoms field if needed
+    if (diagnosisData.symptoms && !diagnosisData.signs_and_symptoms) {
+      diagnosisData.signs_and_symptoms = diagnosisData.symptoms;
+    }
+
+    console.log("Successfully parsed diagnosis data:", diagnosisData);
+    return diagnosisData;
+  } catch (error) {
+    console.error(
+      "Failed to extract diagnosis information:",
+      error,
+      "\nOriginal response:",
+      jsonResponse
+    );
+    return {
+      condition: "Unknown",
+      confidence: 0,
+      recommendation: "Error extracting diagnosis information."
+    };
+  }
 };
 
 module.exports = {

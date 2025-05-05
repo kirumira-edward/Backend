@@ -32,7 +32,7 @@ const fetchWeatherData = async (
  */
 const fetchSoilMoistureData = async (
   channelId = process.env.THINGSPEAK_CHANNEL,
-  fieldNumber = "1",
+  fieldNumber = "5",
   apiKey = process.env.THINGSPEAK_API_KEY
 ) => {
   try {
@@ -69,16 +69,17 @@ const extractWeatherData = (weatherData) => {
  * @param {Object} soilData - Raw soil data from ThingSpeak API
  * @returns {Object} Extracted soil moisture value
  */
-const extractSoilMoistureData = (soilData) => {
+const extractSoilMoistureData = (soilData, fieldNumber = "5") => {
   if (!soilData || !soilData.feeds || soilData.feeds.length === 0) {
     throw new Error("Invalid soil moisture data format");
   }
 
   // Get the latest reading
   const latestReading = soilData.feeds[soilData.feeds.length - 1];
+  const fieldName = `field${fieldNumber}`;
 
   return {
-    soilMoisture: parseFloat(latestReading.field1),
+    soilMoisture: parseFloat(latestReading[fieldName]),
     timestamp: new Date(latestReading.created_at)
   };
 };

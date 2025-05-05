@@ -1,4 +1,4 @@
-const { sendNotification } = require("./notificationService");
+const notificationService = require("./notificationService");
 const EnvironmentalData = require("../models/EnvironmentalData");
 
 /**
@@ -70,7 +70,7 @@ const triggerBlightRiskNotification = async (environmentalData) => {
     }
 
     // Send the notification with action data for deep linking
-    await sendNotification(
+    await notificationService.sendNotification(
       environmentalData.farmerId,
       title,
       message,
@@ -143,7 +143,7 @@ const triggerWeatherChangeNotification = async (environmentalData) => {
         "; "
       )}. These changes may affect your crops.`;
 
-      await sendNotification(
+      await notificationService.sendNotification(
         environmentalData.farmerId,
         title,
         message,
@@ -217,7 +217,7 @@ const sendFarmingTip = async (farmerId) => {
       farmingTips[Math.floor(Math.random() * farmingTips.length)];
 
     // Send the notification
-    await sendNotification(
+    await notificationService.sendNotification(
       farmerId,
       randomTip.title,
       randomTip.message,
@@ -259,7 +259,7 @@ const triggerDiagnosisNotification = async (diagnosis) => {
       message += `Condition: ${diagnosis.condition}. ${diagnosis.recommendation}`;
     }
 
-    await sendNotification(
+    await notificationService.sendNotification(
       diagnosis.farmerId,
       title,
       message,
